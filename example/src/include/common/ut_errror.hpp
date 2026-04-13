@@ -14,3 +14,4 @@ UT_DECL_ERR(UT_ROBOT_TASK_UNKNOWN_ERROR, -2, "task unknown error.")
   if ((code) == (error)) {                                \
     RCLCPP_ERROR(this->get_logger(), "%s", error##_DESC); \
   }
+  
