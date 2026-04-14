@@ -75,13 +75,13 @@ g1_loco_service_example --get_fsm_mode
 ### 4.2 模式切换
 
 ```bash
-g1_loco_service_example --damp
-g1_loco_service_example --start
-g1_loco_service_example --squat
-g1_loco_service_example --sit
-g1_loco_service_example --stand_up
-g1_loco_service_example --zero_torque
-g1_loco_service_example --balance_stand
+g1_loco_service_example --damp          # 阻尼模式：关节带阻尼，便于人工扶持/拖动，通常用于过渡与保护
+g1_loco_service_example --zero_torque   # 零力矩模式：电机关节尽量不主动输出力矩（近似“松力”状态）
+g1_loco_service_example --start         # 主运控模式：进入高层运动控制主状态（后续步态/移动控制前常先执行）
+g1_loco_service_example --squat         # 下蹲模式：机器人下蹲到较低姿态
+g1_loco_service_example --sit           # 落座模式：机器人从站立过渡到坐姿
+g1_loco_service_example --stand_up      # 起立模式：从坐姿或低姿态恢复到站立
+g1_loco_service_example --balance_stand # 平衡站立模式：维持稳定站立，常作为行走前的稳定准备状态
 ```
 
 ### 4.3 移动控制
