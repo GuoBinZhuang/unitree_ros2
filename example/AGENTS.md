@@ -27,7 +27,7 @@ example/
 |---|---|---|
 | 新增示例可执行文件 | `src/CMakeLists.txt` | 需同时加 `add_executable`、依赖、`install` |
 | 复用公共 client | `src/include/common`, `src/src/common` | 多机器人示例共享 |
-| 改 G1 高层示例 | `src/src/g1/high_level` | loco / motion switch / arm action |
+| 改 G1 高层示例 | `src/src/g1/high_level`, `src/src/g1/AGENTS.md` | loco / motion switch / arm action |
 | 改 G1 低层示例 | `src/src/g1/lowlevel` | 含 `behavior_lib` 数据目录 |
 | 改 Go2/B2 示例 | `src/src/go2`, `src/src/b2`, `src/src/b2w` | 多数依赖 `unitree_go` |
 
@@ -36,6 +36,7 @@ example/
 - 许多示例显式要求 `cxx_std_20`，即使包默认是 C++14。
 - 共享头实现分离：声明常在 `include/common`，实现常在 `src/common`。
 - `yaml-cpp` 不是硬依赖；`g1_dual_arm_example` 仅在版本满足时构建。
+- `src/src/g1/GPIO` 是独立 CMake 小工程，不受本文件里的 ROS2 package 目标清单管理。
 
 ## 本目录反模式
 - 不要编辑 `src/include/nlohmann/**` 来修业务问题。
@@ -45,4 +46,5 @@ example/
 
 ## 备注
 - 本目录文件最多、变化面最广；未来 agent 处理“新增示例/改示例/排查构建失败”应先读这里。
+- G1 子树现在已有更细一层知识库：`src/src/g1/AGENTS.md` 与 `src/src/g1/GPIO/AGENTS.md`。
 - 若只做文档或 CI 变更，不必下钻到本目录。

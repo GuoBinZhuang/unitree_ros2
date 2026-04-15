@@ -1,7 +1,7 @@
 # 项目知识库
 
-**生成时间：** 2026-04-14 10:28:49 +08:00
-**提交：** `3ac0649`
+**生成时间：** 2026-04-15 15:27:14 +08:00
+**提交：** `9717120`
 **分支：** `emergency_stop`
 
 ## 概览
@@ -81,6 +81,6 @@ ros2 topic list
 ```
 
 ## 备注
-- 未检测到现有 `AGENTS.md` / `CLAUDE.md`；本层级为首次生成。
 - 当前环境未安装 `clangd`；LSP codemap 不可用，目录决策主要基于结构、CMake、文档与 CI。
-- 生成子级 AGENTS 的推荐位置：`cyclonedds_ws/`、`example/`、`docs/`、`.github/`。
+- 当前层级：`cyclonedds_ws/`、`example/`、`docs/`、`.github/`、`example/src/src/g1/`、`example/src/src/g1/GPIO/`。
+- 若 README / setup 脚本 / 文档冲突，优先信 `.github/workflows/`，再回查对应源码目录。

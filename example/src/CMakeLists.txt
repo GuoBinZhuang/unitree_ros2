@@ -38,6 +38,7 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_library(GPIOD_LIBRARY gpiod)
 
 add_executable(low_level_ctrl src/low_level_ctrl.cpp src/common/motor_crc.cpp)
 add_executable(low_level_ctrl_hg src/h1-2/lowlevel/low_level_ctrl_hg.cpp src/common/motor_crc_hg.cpp)
@@ -73,6 +74,13 @@ target_compile_features(g1_loco_service_example PRIVATE cxx_std_20)
 
 add_executable(g1_motion_switcher_example src/g1/high_level/g1_motion_switcher_example.cpp)
 target_compile_features(g1_motion_switcher_example PRIVATE cxx_std_20)
+
+if(GPIOD_LIBRARY)
+  add_executable(g1_emergency_stop_node src/g1/high_level/g1_emergency_stop_node.cpp)
+  target_compile_features(g1_emergency_stop_node PRIVATE cxx_std_20)
+else()
+  message(WARNING "libgpiod not found: skipping g1_emergency_stop_node. Install libgpiod-dev to enable it.")
+endif()
 
 add_executable(g1_ankle_swing_example src/g1/lowlevel/g1_ankle_swing_example.cpp src/common/motor_crc_hg.cpp)
 target_compile_features(g1_ankle_swing_example PRIVATE cxx_std_20)
@@ -116,6 +124,10 @@ target_include_directories(g1_dex3_example PRIVATE ${EIGEN3_INCLUDE_DIR})
 ament_target_dependencies(g1_loco_client_example ${DEPENDENCY_LIST})
 ament_target_dependencies(g1_loco_service_example ${DEPENDENCY_LIST})
 ament_target_dependencies(g1_motion_switcher_example ${DEPENDENCY_LIST})
+if(TARGET g1_emergency_stop_node)
+  ament_target_dependencies(g1_emergency_stop_node ${DEPENDENCY_LIST})
+  target_link_libraries(g1_emergency_stop_node ${GPIOD_LIBRARY})
+endif()
 ament_target_dependencies(g1_ankle_swing_example ${DEPENDENCY_LIST})
 
 ament_target_dependencies(g1_audio_client_example ${DEPENDENCY_LIST})
@@ -139,7 +151,7 @@ if(yaml-cpp_FOUND)
     endif()
 endif()
 
-install(TARGETS 
+install(TARGETS
         low_level_ctrl
         low_level_ctrl_hg
         g1_low_level_example
@@ -149,26 +161,27 @@ install(TARGETS
         read_wireless_controller
         go2_sport_client
         go2_stand_example
-        DESTINATION)
+        go2_robot_state_client
+        g1_arm_sdk_dds_example
+        g1_arm_action_example
+        g1_dex3_example
+        g1_loco_client_example
+        g1_loco_service_example
+        g1_motion_switcher_example
+        g1_ankle_swing_example
+        g1_audio_client_example
+        g1_tts_led_control_example
+        DESTINATION lib/${PROJECT_NAME})
 
-
-install(TARGETS go2_robot_state_client)
-install(TARGETS g1_arm_sdk_dds_example)
-install(TARGETS g1_arm_action_example)
-install(TARGETS g1_dex3_example)
-install(TARGETS g1_loco_client_example)
-install(TARGETS g1_loco_service_example)
-install(TARGETS g1_motion_switcher_example)
-install(TARGETS g1_ankle_swing_example)
+if(TARGET g1_emergency_stop_node)
+  install(TARGETS g1_emergency_stop_node DESTINATION lib/${PROJECT_NAME})
+endif()
 
 if(yaml-cpp_FOUND)
     if (${yaml-cpp_VERSION} VERSION_GREATER_EQUAL "0.6")
-      install(TARGETS g1_dual_arm_example)
+      install(TARGETS g1_dual_arm_example DESTINATION lib/${PROJECT_NAME})
     endif()
 endif()
-
-install(TARGETS g1_audio_client_example)
-install(TARGETS g1_tts_led_control_example)
 
 
 
