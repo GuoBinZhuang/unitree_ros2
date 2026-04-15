@@ -80,6 +80,9 @@ target_compile_features(g1_ankle_swing_example PRIVATE cxx_std_20)
 add_executable(g1_audio_client_example src/g1/audio_client/g1_audio_client_example.cpp)
 target_compile_features(g1_audio_client_example PRIVATE cxx_std_20)
 
+add_executable(g1_tts_led_control_example src/g1/audio_client/g1_tts_led_control_example.cpp)
+target_compile_features(g1_tts_led_control_example PRIVATE cxx_std_20)
+
 add_executable(b2w_sport_client src/b2w/b2w_sport_client.cpp src/common/ros2_b2_sport_client.cpp)
 target_compile_features(b2w_sport_client PRIVATE cxx_std_20)
 
@@ -116,6 +119,7 @@ ament_target_dependencies(g1_motion_switcher_example ${DEPENDENCY_LIST})
 ament_target_dependencies(g1_ankle_swing_example ${DEPENDENCY_LIST})
 
 ament_target_dependencies(g1_audio_client_example ${DEPENDENCY_LIST})
+ament_target_dependencies(g1_tts_led_control_example ${DEPENDENCY_LIST})
 
 ament_target_dependencies(b2w_sport_client ${DEPENDENCY_LIST})
 ament_target_dependencies(b2w_stand_example ${DEPENDENCY_LIST})
@@ -164,6 +168,7 @@ if(yaml-cpp_FOUND)
 endif()
 
 install(TARGETS g1_audio_client_example)
+install(TARGETS g1_tts_led_control_example)
 
 
 
