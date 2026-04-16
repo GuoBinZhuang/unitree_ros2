@@ -42,7 +42,7 @@ UT_DECL_ERR(
     "mode {0, 3}.\n"
     "See "
     "https://support.unitree.com/home/en/G1_developer/"
-    "sport_services_interface#Expert%20interface");
+    "sport_services_interface#Expert%20interface")
 
 const int32_t ROBOT_API_ID_ARM_ACTION_EXECUTE_ACTION = 7106;
 const int32_t ROBOT_API_ID_ARM_ACTION_GET_ACTION_LIST = 7107;

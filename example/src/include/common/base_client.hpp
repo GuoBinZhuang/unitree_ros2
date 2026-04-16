@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include <cstdint>
 #include <future>
 #include <rclcpp/rclcpp.hpp>
@@ -28,7 +29,8 @@ class BaseClient {
         req_puber_(node_->create_publisher<Request>(topic_name_request,
                                                     rclcpp::QoS(1))) {}
 
-  int32_t Call(Request req, nlohmann::json& js) {
+  int32_t Call(Request req, nlohmann::json& js,
+               std::chrono::milliseconds timeout) {
     std::promise<const std::shared_ptr<const Response>> response_promise;
     auto response_future = response_promise.get_future();
     req.header.identity.id = unitree::common::GetSystemUptimeInNanoseconds();
@@ -44,7 +46,7 @@ class BaseClient {
         });
 
     req_puber_->publish(req);
-    auto status = response_future.wait_for(std::chrono::seconds(5));
+    auto status = response_future.wait_for(timeout);
 
     Response response;
     if (status == std::future_status::ready) {
@@ -65,8 +67,17 @@ class BaseClient {
     return UT_ROBOT_TASK_UNKNOWN_ERROR;
   }
 
+  int32_t Call(Request req, nlohmann::json& js) {
+    return Call(std::move(req), js, std::chrono::seconds(5));
+  }
+
   int32_t Call(Request req) {
     nlohmann::json js;
-    return Call(std::move(req), js);
+    return Call(std::move(req), js, std::chrono::seconds(5));
+  }
+
+  int32_t Call(Request req, std::chrono::milliseconds timeout) {
+    nlohmann::json js;
+    return Call(std::move(req), js, timeout);
   }
 };

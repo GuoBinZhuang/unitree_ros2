@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+
 #include <rclcpp/node.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -19,6 +21,7 @@ constexpr int32_t ROBOT_API_ID_AUDIO_STOP_PLAY = 1004;
 constexpr int32_t ROBOT_API_ID_AUDIO_GET_VOLUME = 1005;
 constexpr int32_t ROBOT_API_ID_AUDIO_SET_VOLUME = 1006;
 constexpr int32_t ROBOT_API_ID_AUDIO_SET_RGB_LED = 1010;
+constexpr auto ROBOT_API_AUDIO_TTS_TIMEOUT = std::chrono::seconds(20);
 
 class AudioClient : public rclcpp::Node {
   uint32_t tts_index_ = 0;
@@ -37,7 +40,7 @@ class AudioClient : public rclcpp::Node {
     js["text"] = text;
     js["speaker_id"] = speaker_id;
     req.parameter = js.dump();
-    return base_client_.Call(req);
+    return base_client_.Call(req, ROBOT_API_AUDIO_TTS_TIMEOUT);
   }
 
   int32_t GetVolume(uint8_t &volume) {

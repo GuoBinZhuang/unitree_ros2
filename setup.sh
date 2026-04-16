@@ -9,6 +9,21 @@ if [ -f "$HOME/unitree_ros2/cyclonedds_ws/install/setup.bash" ]; then
 fi
 
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces>
-                            <NetworkInterface name="eth1" priority="default" multicast="default" />
-                        </Interfaces></General></Domain></CycloneDDS>'
+
+# 自动选择 CycloneDDS 网卡：优先匹配目标 IP，其次按到目标 IP 的路由推断，最后兜底 eth1
+TARGET_IP="192.168.123.164"
+NET_IFACE=$(ip -o -4 addr show | awk -v target="$TARGET_IP" '$4 ~ ("^" target "/") {print $2; exit}')
+
+if [ -z "$NET_IFACE" ]; then
+    NET_IFACE=$(ip route get "$TARGET_IP" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')
+fi
+
+if [ -z "$NET_IFACE" ]; then
+    NET_IFACE="eth1"
+fi
+
+echo "CycloneDDS network interface: $NET_IFACE (target IP: $TARGET_IP)"
+
+export CYCLONEDDS_URI="<CycloneDDS><Domain><General><Interfaces>
+                            <NetworkInterface name=\"$NET_IFACE\" priority=\"default\" multicast=\"default\" />
+                        </Interfaces></General></Domain></CycloneDDS>"

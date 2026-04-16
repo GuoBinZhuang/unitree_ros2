@@ -1,5 +1,6 @@
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <iostream>
 #include <map>
@@ -12,7 +13,7 @@
 #include "g1/g1_audio_client.hpp"
 #include "g1/g1_loco_client.hpp"
 #include "g1/g1_motion_switch_client.hpp"
-#include "rclcpp/executors/single_threaded_executor.hpp"
+#include "rclcpp/executors/multi_threaded_executor.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 #include "../GPIO/gpio_estop.hpp"
@@ -21,6 +22,41 @@ namespace {
 
 // G1 阻尼模式 FSM ID。
 constexpr int kDampFsmId = 1;
+constexpr int kDefaultSpeakerId = 0;
+constexpr const char *kStartupSelfCheckSuccessText = "急停自检通过";
+constexpr const char *kStartupSelfCheckFailureText = "警告！警告！急停自检失败，请检查硬件连接";
+constexpr const char *kStartupPressedWaitText =
+    "检测到急停可能处于按下状态，请抬起急停后自动重新检测";
+constexpr const char *kInterruptedShutdownText =
+    "警告！急停程序已由键盘中断";
+constexpr const char *kRuntimeFaultShutdownText =
+    "警告！警告！急停检测线程故障，程序即将停止，请检查硬件连接";
+constexpr const char *kUnhandledExceptionText =
+    "警告！警告！急停程序异常退出，请检查系统状态";
+
+// 信号处理仅做原子置位，避免在异步信号上下文做复杂操作。
+volatile std::sig_atomic_t g_shutdown_signal = 0;
+
+void ShutdownSignalHandler(int signal) {
+  g_shutdown_signal = signal;
+}
+
+int ConsumeShutdownSignal() {
+  // 读取后立即清零，保证每个信号只消费一次。
+  const int signal = g_shutdown_signal;
+  g_shutdown_signal = 0;
+  return signal;
+}
+
+const char *SignalName(int signal) {
+  if (signal == SIGINT) {
+    return "SIGINT";
+  }
+  if (signal == SIGTERM) {
+    return "SIGTERM";
+  }
+  return "UNKNOWN";
+}
 
 struct LedColor {
   uint8_t r;
@@ -43,12 +79,9 @@ class G1EmergencyStopNode final : public rclcpp::Node {
         retry_backoff_ms_(declare_parameter<int>("retry_backoff_ms", 100)),
         notification_cooldown_ms_(
             declare_parameter<int>("notification_cooldown_ms", 2000)),
-        speaker_id_(declare_parameter<int>("speaker_id", 0)),
-        success_text_(declare_parameter<std::string>("success_text", "急停触发，已切换阻尼模式")),
-        failure_text_(declare_parameter<std::string>("failure_text", "急停触发，切换阻尼模式失败，请立即检查")),
         success_led_({
           ClampColor(declare_parameter<int>("success_led_r", 255)),
-          ClampColor(declare_parameter<int>("success_led_g", 180)),
+          ClampColor(declare_parameter<int>("success_led_g", 0)),
           ClampColor(declare_parameter<int>("success_led_b", 0)),
         }),
         failure_led_({
@@ -141,32 +174,115 @@ class G1EmergencyStopNode final : public rclcpp::Node {
     return static_cast<uint8_t>(value);
   }
 
-  void StartDetector() {
-    std::lock_guard<std::mutex> lock(lifecycle_mutex_);
-    if (detector_started_.load(std::memory_order_acquire)) {
+  static bool IsLikelyPressedAtStartup(const std::string &report) {
+    return report.find("启动时输入线 A 电平异常") != std::string::npos ||
+           report.find("启动时输入线 B 电平异常") != std::string::npos;
+  }
+
+  void AnnounceByTts(const char *text, const char *scene) {
+    if (text == nullptr) {
       return;
     }
 
-    runtime_fault_reported_.store(false, std::memory_order_release);
+    const int32_t tts_ret = audio_client_->TtsMaker(text, kDefaultSpeakerId);
+    if (tts_ret == UT_ROBOT_SUCCESS) {
+      RCLCPP_INFO(get_logger(), "%s 播报成功: %s", scene, text);
+      return;
+    }
 
-    try {
-      detector_.start();
+    // 语音播报可能已被设备受理但响应超时；此处不重试，避免重复播报。
+    if (tts_ret == UT_ROBOT_TASK_TIMEOUT) {
+      RCLCPP_WARN(get_logger(), "%s 播报超时(code=%d)，为避免重复播报不再重试",
+                  scene, tts_ret);
+      return;
+    }
 
-      // 启动后立即做一次自检，不通过则主动退出，避免无保护运行。
-      std::string report;
-      if (!detector_.startupSelfCheck(report)) {
-        RCLCPP_ERROR(get_logger(), "GPIO 急停自检失败: %s", report.c_str());
-        detector_.stop();
-        rclcpp::shutdown();
+    RCLCPP_WARN(get_logger(), "%s 播报失败, code=%d", scene, tts_ret);
+  }
+
+  bool HandleExternalStopSignalIfNeeded() {
+    // 将 SIGINT/SIGTERM 统一收敛到受控退出流程。
+    const int signal = ConsumeShutdownSignal();
+    if (signal == 0) {
+      return false;
+    }
+
+    std::string reason = "收到外部中断信号 ";
+    reason += SignalName(signal);
+    RequestControlledShutdown(reason, kInterruptedShutdownText);
+    return true;
+  }
+
+  void RequestControlledShutdown(const std::string &reason,
+                                 const char *shutdown_tts_text) {
+    bool expected = false;
+    // 只允许第一个触发方执行退出动作，避免重复关停。
+    if (!shutting_down_.compare_exchange_strong(expected, true,
+                                                std::memory_order_acq_rel)) {
+      return;
+    }
+
+    RCLCPP_ERROR(get_logger(), "触发受控退出: %s", reason.c_str());
+    AnnounceByTts(shutdown_tts_text, "退出提示");
+    NotifyWithLed(NotifyType::kFailure);
+    StopDetector();
+    if (rclcpp::ok()) {
+      rclcpp::shutdown();
+    }
+  }
+
+  void StartDetector() {
+    {
+      std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+      if (detector_started_.load(std::memory_order_acquire)) {
+        return;
+      }
+      runtime_fault_reported_.store(false, std::memory_order_release);
+      startup_ready_.store(false, std::memory_order_release);
+
+      try {
+        detector_.start();
+        detector_started_.store(true, std::memory_order_release);
+      } catch (const std::exception &e) {
+        RCLCPP_ERROR(get_logger(), "启动 GPIO 急停检测失败: %s", e.what());
+        RequestControlledShutdown("启动 GPIO 急停检测失败",
+                                  kRuntimeFaultShutdownText);
+        return;
+      }
+    }
+
+    bool waiting_release_announced = false;
+    // 启动阶段循环自检：支持“急停处于按下状态时等待抬起后自动重检”。
+    while (!shutting_down_.load(std::memory_order_acquire)) {
+      if (HandleExternalStopSignalIfNeeded()) {
         return;
       }
 
-      detector_started_.store(true, std::memory_order_release);
-      estop_active_.store(detector_.isActive(), std::memory_order_release);
-      RCLCPP_INFO(get_logger(), "GPIO 急停检测已启动: %s", report.c_str());
-    } catch (const std::exception &e) {
-      RCLCPP_ERROR(get_logger(), "启动 GPIO 急停检测失败: %s", e.what());
-      rclcpp::shutdown();
+      // 启动后做自检：若急停已按下，则提示用户抬起后自动重检。
+      std::string report;
+      if (detector_.startupSelfCheck(report)) {
+        estop_active_.store(detector_.isActive(), std::memory_order_release);
+        startup_ready_.store(true, std::memory_order_release);
+        RCLCPP_INFO(get_logger(), "GPIO 急停检测已启动: %s", report.c_str());
+        AnnounceByTts(kStartupSelfCheckSuccessText, "启动自检");
+        return;
+      }
+
+      if (IsLikelyPressedAtStartup(report)) {
+        if (!waiting_release_announced) {
+          waiting_release_announced = true;
+          RCLCPP_WARN(get_logger(),
+                      "启动自检检测到急停可能处于按下状态，等待抬起后自动重检: %s",
+                      report.c_str());
+          AnnounceByTts(kStartupPressedWaitText, "启动自检");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        continue;
+      }
+
+      RCLCPP_ERROR(get_logger(), "GPIO 急停自检失败: %s", report.c_str());
+      RequestControlledShutdown("启动自检失败", kStartupSelfCheckFailureText);
+      return;
     }
   }
 
@@ -178,10 +294,15 @@ class G1EmergencyStopNode final : public rclcpp::Node {
 
     detector_.stop();
     detector_started_.store(false, std::memory_order_release);
+    startup_ready_.store(false, std::memory_order_release);
     RCLCPP_INFO(get_logger(), "GPIO 急停检测已停止");
   }
 
   void MonitorDetectorHealth() {
+    if (HandleExternalStopSignalIfNeeded()) {
+      return;
+    }
+
     if (!detector_started_.load(std::memory_order_acquire) ||
         shutting_down_.load(std::memory_order_acquire)) {
       return;
@@ -193,18 +314,19 @@ class G1EmergencyStopNode final : public rclcpp::Node {
     }
 
     bool expected = false;
-    // 只上报一次运行时故障，避免故障期间重复刷屏和重复播报。
+    // 只上报一次运行时故障，避免故障期间重复刷屏和重复提示。
     if (!runtime_fault_reported_.compare_exchange_strong(
             expected, true, std::memory_order_acq_rel)) {
       return;
     }
 
     RCLCPP_ERROR(get_logger(), "GPIO 急停检测线程故障: %s", runtime_error.c_str());
-    NotifyWithTtsLed(NotifyType::kFailure);
+    RequestControlledShutdown("GPIO 急停检测线程故障", kRuntimeFaultShutdownText);
   }
 
   void OnPressedEdge() {
-    if (shutting_down_.load(std::memory_order_acquire)) {
+    if (shutting_down_.load(std::memory_order_acquire) ||
+        !startup_ready_.load(std::memory_order_acquire)) {
       return;
     }
 
@@ -220,16 +342,20 @@ class G1EmergencyStopNode final : public rclcpp::Node {
 
     const bool switched = SwitchToDampWithRetry();
     if (switched) {
-      NotifyWithTtsLed(NotifyType::kSuccess);
+      NotifyWithLed(NotifyType::kSuccess);
       RCLCPP_INFO(get_logger(), "急停处理完成：机器人已进入阻尼模式");
       return;
     }
 
-    NotifyWithTtsLed(NotifyType::kFailure);
+    NotifyWithLed(NotifyType::kFailure);
     RCLCPP_ERROR(get_logger(), "急停处理失败：未能切换至阻尼模式");
   }
 
   void OnReleasedEdge() {
+    if (!startup_ready_.load(std::memory_order_acquire)) {
+      return;
+    }
+
     const bool was_active = estop_active_.exchange(false, std::memory_order_acq_rel);
     if (!was_active) {
       return;
@@ -311,28 +437,22 @@ class G1EmergencyStopNode final : public rclcpp::Node {
     return true;
   }
 
-  void NotifyWithTtsLed(NotifyType type) {
+  void NotifyWithLed(NotifyType type) {
     if (ShouldSkipNotification(type)) {
-      RCLCPP_WARN(get_logger(), "声光提示被节流，跳过本次通知");
+      RCLCPP_WARN(get_logger(), "灯光提示被节流，跳过本次通知");
       return;
     }
 
-    // 同一入口统一处理成功/失败文案和颜色。
-    const std::string &text = (type == NotifyType::kSuccess) ? success_text_ : failure_text_;
+    // 同一入口统一处理成功/失败颜色。
     const LedColor color = (type == NotifyType::kSuccess) ? success_led_ : failure_led_;
-
-    const int32_t tts_ret = audio_client_->TtsMaker(text, speaker_id_);
-    if (tts_ret != UT_ROBOT_SUCCESS) {
-      RCLCPP_ERROR(get_logger(), "TtsMaker 失败, code=%d", tts_ret);
-    }
 
     const int32_t led_ret = audio_client_->LedControl(color.r, color.g, color.b);
     if (led_ret != UT_ROBOT_SUCCESS) {
       RCLCPP_ERROR(get_logger(), "LedControl 失败, code=%d", led_ret);
     }
 
-    if (tts_ret == UT_ROBOT_SUCCESS && led_ret == UT_ROBOT_SUCCESS) {
-      RCLCPP_INFO(get_logger(), "声光提示成功: text=\"%s\" rgb=(%u,%u,%u)", text.c_str(),
+    if (led_ret == UT_ROBOT_SUCCESS) {
+      RCLCPP_INFO(get_logger(), "灯光提示成功: rgb=(%u,%u,%u)",
                   static_cast<unsigned>(color.r), static_cast<unsigned>(color.g),
                   static_cast<unsigned>(color.b));
     }
@@ -355,7 +475,7 @@ class G1EmergencyStopNode final : public rclcpp::Node {
       return false;
     }
 
-    // 同类型通知在冷却时间内丢弃，避免短时重复播报。
+    // 同类型通知在冷却时间内丢弃，避免短时重复提示。
     const auto elapsed_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(now - last_notify_at_)
             .count();
@@ -367,9 +487,6 @@ class G1EmergencyStopNode final : public rclcpp::Node {
   const int max_retries_;
   const int retry_backoff_ms_;
   const int notification_cooldown_ms_;
-  const int speaker_id_;
-  const std::string success_text_;
-  const std::string failure_text_;
   const LedColor success_led_;
   const LedColor failure_led_;
 
@@ -391,27 +508,49 @@ class G1EmergencyStopNode final : public rclcpp::Node {
   std::atomic<bool> estop_active_;
   std::atomic<bool> runtime_fault_reported_{false};
   std::atomic<bool> detector_started_;
+  std::atomic<bool> startup_ready_{false};
   std::atomic<bool> shutting_down_;
 };
 
 }  // namespace
 
 int main(int argc, char **argv) {
+  std::shared_ptr<unitree::ros2::g1::AudioClient> audio_node;
+
   try {
     rclcpp::init(argc, argv);
 
     // AudioClient 也是 Node，需要与主节点一起加入同一个 executor。
     auto estop_node = std::make_shared<G1EmergencyStopNode>();
-    auto audio_node = estop_node->GetAudioClientNode();
+    audio_node = estop_node->GetAudioClientNode();
 
-    rclcpp::executors::SingleThreadedExecutor executor;
+    // 捕获终止信号，由主循环主动走受控退出路径。
+    std::signal(SIGINT, ShutdownSignalHandler);
+    std::signal(SIGTERM, ShutdownSignalHandler);
+
+    // 多线程执行器用于避免同步 RPC 阻塞回调调度。
+    rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 2);
     executor.add_node(estop_node);
     executor.add_node(audio_node);
     executor.spin();
 
-    rclcpp::shutdown();
+    if (rclcpp::ok()) {
+      rclcpp::shutdown();
+    }
     return 0;
   } catch (const std::exception &e) {
+    if (audio_node) {
+      const int32_t tts_ret = audio_node->TtsMaker(kUnhandledExceptionText, kDefaultSpeakerId);
+      if (tts_ret != UT_ROBOT_SUCCESS) {
+        std::cerr << "Unhandled-exception TTS failed, code=" << tts_ret
+                  << std::endl;
+      }
+    }
+
+    if (rclcpp::ok()) {
+      rclcpp::shutdown();
+    }
+
     std::cerr << "Fatal error in g1_emergency_stop_node: " << e.what()
               << std::endl;
     return 1;

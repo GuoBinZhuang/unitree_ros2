@@ -85,6 +85,7 @@ public:
         cb_released_ = std::move(cb);
     }
 
+    // 启动自检：确认输入线电平符合“未按下”预期，避免无保护运行。
     bool startupSelfCheck(std::string& report) const {
         if (!line5_) {
             report = "启动自检失败: 输入线 A 未初始化";
@@ -168,6 +169,7 @@ public:
     }
 
 private:
+    // 回调队列中的事件类型。
     enum class CallbackEvent {
         Pressed,
         Released
@@ -175,6 +177,7 @@ private:
 
     int debounce_ms_;
     bool active_low_;
+    // 急停当前状态、主监听线程状态、回调线程状态、stop 重入保护、运行代次。
     std::atomic<bool> active_;
     std::atomic<bool> running_;
     std::atomic<bool> callback_worker_running_;
@@ -286,6 +289,7 @@ private:
         if (chip_) { gpiod_chip_close(chip_); chip_ = nullptr; }
     }
 
+    // 读取当前 GPIO 电平并计算急停状态；读取失败时保留旧状态。
     bool sampleEStop() const {
         int v5 = gpiod_line_get_value(line5_);
         if (v5 < 0) return active_.load();
@@ -303,6 +307,7 @@ private:
         return run_generation_.load(std::memory_order_acquire) == run_generation;
     }
 
+    // 回调消费线程：串行执行按下/释放回调，避免并发重入用户逻辑。
     void callbackLoop(uint64_t run_generation) {
         while (true) {
             CallbackEvent event = CallbackEvent::Released;
@@ -352,6 +357,7 @@ private:
         }
     }
 
+    // GPIO 事件线程：epoll 等待边沿事件 + 消抖 + 状态变更上报。
     void eventLoop(uint64_t run_generation) {
         if (epoll_fd_ < 0) {
             setRuntimeErrorForGeneration(run_generation, "epoll fd not initialized");
@@ -397,6 +403,7 @@ private:
             }
             if (read_failed) break;
 
+            // 统一消抖窗口，降低机械抖动带来的误触发概率。
             std::this_thread::sleep_for(std::chrono::milliseconds(debounce_ms_));
 
             bool new_state = sampleEStop();
@@ -450,6 +457,7 @@ public:
             throw std::runtime_error("start called while stop() is in progress");
         }
 
+        // 已运行则直接返回；若前一轮异常退出，则先做一次资源回收。
         if (running_.load(std::memory_order_acquire)) return;
         recoverStoppedRunStateLocked();
 
@@ -526,6 +534,7 @@ public:
                 throw std::runtime_error("epoll_create1 failed");
             }
 
+            // 将输入线事件 fd 挂到 epoll，统一由事件线程处理。
             auto addLine = [&](gpiod_line* line) {
                 int fd = gpiod_line_event_get_fd(line);
                 if (fd < 0) return false;
@@ -544,6 +553,7 @@ public:
                                            this,
                                            run_generation);
 
+            // 启动时先采样一次，避免第一拍状态未知。
             active_.store(sampleEStop(), std::memory_order_release);
             thread_ = std::thread(&EStopDetector::eventLoop, this, run_generation);
             notifyEvent();
@@ -582,6 +592,7 @@ public:
 
         {
             std::unique_lock<std::mutex> lifecycle_lock(lifecycle_mtx_);
+            // 防止并发 stop：后到者等待前一次 stop 完整结束。
             if (stop_in_progress_.load(std::memory_order_acquire)) {
                 lifecycle_cv_.wait(lifecycle_lock, [&] {
                     return !stop_in_progress_.load(std::memory_order_acquire);
