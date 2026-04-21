@@ -58,6 +58,11 @@ constexpr auto kEmergencyDampRpcTimeout = std::chrono::milliseconds(1000);
 constexpr auto kEmergencyFsmVerifyTimeout = std::chrono::milliseconds(300);
 constexpr auto kEmergencyActionTtsTimeout = std::chrono::milliseconds(500);
 constexpr auto kEmergencyActionLedTimeout = std::chrono::milliseconds(300);
+// 开机阶段语音服务可能稍晚就绪：自检成功播报使用“短超时 + 重试”策略。
+// 当前窗口约为 8 * 0.8s + 7 * 0.7s ~= 11.3s。
+constexpr auto kStartupSelfCheckTtsTimeout = std::chrono::milliseconds(800);
+constexpr auto kStartupSelfCheckTtsRetryInterval = std::chrono::milliseconds(700);
+constexpr int kStartupSelfCheckTtsMaxAttempts = 8;
 constexpr auto kMotionModeMonitorPeriod = std::chrono::seconds(1);
 constexpr auto kMotionModeCheckTimeout = std::chrono::milliseconds(200);
 constexpr auto kDebugModeAnnouncementDelay = std::chrono::seconds(5);
@@ -380,6 +385,56 @@ class G1EmergencyStopNode final : public rclcpp::Node {
     RCLCPP_WARN(get_logger(), "%s 播报失败, code=%d", scene, tts_ret);
   }
 
+  void AnnounceStartupSelfCheckByTts() {
+    // 启动自检播报是“首次可感知提示”，允许在短时间内重试，
+    // 以覆盖语音服务慢启动导致的首发失败场景。
+    for (int attempt = 1; attempt <= kStartupSelfCheckTtsMaxAttempts;
+         ++attempt) {
+      // 退出流程触发后不再继续播报重试，避免拖慢停机。
+      if (shutting_down_.load(std::memory_order_acquire)) {
+        return;
+      }
+
+      int32_t tts_ret = UT_ROBOT_TASK_UNKNOWN_ERROR;
+      try {
+        tts_ret = audio_client_->TtsMaker(kStartupSelfCheckSuccessText,
+                                          kDefaultSpeakerId,
+                                          kStartupSelfCheckTtsTimeout);
+      } catch (const std::exception &e) {
+        RCLCPP_WARN(get_logger(),
+                    "启动自检 播报异常(attempt=%d/%d): %s",
+                    attempt, kStartupSelfCheckTtsMaxAttempts, e.what());
+      } catch (...) {
+        RCLCPP_WARN(get_logger(),
+                    "启动自检 播报异常(attempt=%d/%d): unknown",
+                    attempt, kStartupSelfCheckTtsMaxAttempts);
+      }
+
+      if (tts_ret == UT_ROBOT_SUCCESS) {
+        RCLCPP_INFO(get_logger(), "启动自检 播报成功: %s (attempt=%d/%d)",
+                    kStartupSelfCheckSuccessText, attempt,
+                    kStartupSelfCheckTtsMaxAttempts);
+        return;
+      }
+
+      if (attempt >= kStartupSelfCheckTtsMaxAttempts) {
+        break;
+      }
+
+      RCLCPP_WARN(get_logger(),
+                  "启动自检 播报未成功(code=%d, attempt=%d/%d)，"
+                  "可能语音服务尚未就绪，将继续重试",
+                  tts_ret, attempt, kStartupSelfCheckTtsMaxAttempts);
+      // 使用条件变量等待，便于析构/受控退出时被立即唤醒。
+      if (WaitForWorkerDelayOrShutdown(kStartupSelfCheckTtsRetryInterval)) {
+        return;
+      }
+    }
+
+    RCLCPP_WARN(get_logger(), "启动自检 播报最终失败：超过最大重试次数(%d)",
+                kStartupSelfCheckTtsMaxAttempts);
+  }
+
   bool HandleExternalStopSignalIfNeeded() {
     // 将常见外部停止信号统一收敛到受控退出流程。
     const int signal = ConsumeShutdownSignal();
@@ -546,7 +601,8 @@ class G1EmergencyStopNode final : public rclcpp::Node {
           HandleEmergencyStopAction("启动完成前检测到急停事件");
           return;
         }
-        AnnounceByTts(kStartupSelfCheckSuccessText, "启动自检");
+        // 启动自检播报允许短时重试，其他场景仍保持“单次播报不重试”。
+        AnnounceStartupSelfCheckByTts();
         return;
       }
 
@@ -697,8 +753,9 @@ class G1EmergencyStopNode final : public rclcpp::Node {
     const DampAttemptResult result = SwitchToDampWithRetry();
     if (result == DampAttemptResult::kSwitched) {
       damp_mode_confirmed_.store(true, std::memory_order_release);
-      NotifyWithLed(NotifyType::kSuccess, kEmergencyActionLedTimeout);
-      RCLCPP_INFO(get_logger(), "急停处理完成：机器人已进入阻尼模式");
+      // 急停按下期间保持红灯，避免“切阻尼成功后变绿”造成现场误判。
+      NotifyWithLed(NotifyType::kFailure, kEmergencyActionLedTimeout);
+      RCLCPP_INFO(get_logger(), "急停处理完成：机器人已进入阻尼模式（按下期间保持红灯）");
       return;
     }
 
@@ -1045,9 +1102,8 @@ int main(int argc, char **argv) {
     try {
       if (!rclcpp::ok()) {
         rclcpp::InitOptions init_options;
-        init_options.shutdown_on_signal = false;
-        rclcpp::init(argc, argv, init_options,
-                     rclcpp::SignalHandlerOptions::None);
+        init_options.shutdown_on_sigint = false;
+        rclcpp::init(argc, argv, init_options);
       }
 
       // AudioClient 也是 Node，需要与主节点一起加入同一个 executor。

@@ -98,13 +98,46 @@ class BaseClient {
   }
 
   int32_t Call(Request req) {
-    nlohmann::json js;
-    return Call(std::move(req), js, std::chrono::seconds(5));
+    return Call(std::move(req), std::chrono::seconds(5));
   }
 
   int32_t Call(Request req, std::chrono::milliseconds timeout) {
-    nlohmann::json js;
-    return Call(std::move(req), js, timeout);
+    std::lock_guard<std::mutex> call_lock(call_mutex_);
+    ResetPendingState();
+
+    req.header.identity.id = unitree::common::GetSystemUptimeInNanoseconds();
+    const auto identity_id = req.header.identity.id;
+    current_request_id_.store(identity_id, std::memory_order_release);
+
+    req_puber_->publish(req);
+
+    std::shared_ptr<const Response> response;
+    {
+      std::unique_lock<std::mutex> response_lock(response_mutex_);
+      if (!response_cv_.wait_for(response_lock, timeout, [this]() {
+            return response_ready_;
+          })) {
+        current_request_id_.store(0, std::memory_order_release);
+        ResetPendingStateLocked();
+        return UT_ROBOT_TASK_TIMEOUT;
+      }
+      response = received_response_;
+    }
+
+    current_request_id_.store(0, std::memory_order_release);
+    ResetPendingState();
+
+    if (!response) {
+      return UT_ROBOT_TASK_UNKNOWN_ERROR;
+    }
+
+    if (response->header.status.code != 0) {
+      std::cout << "error code: " << response->header.status.code << std::endl;
+      return response->header.status.code;
+    }
+
+    // 对于不关心响应数据体的 RPC，状态码为 0 即视为成功。
+    return UT_ROBOT_SUCCESS;
   }
 
  private:
