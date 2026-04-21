@@ -20,7 +20,7 @@ docs/
 
 ## 本目录约定
 - 文档偏“如何运行”，不是源码真理源；实现细节仍应回到 `example/src/src/g1/high_level`。
-- 文档里出现了硬编码路径（如 `/home/guobing/g1_text_ws/unitree_ros2/...`）；迁移环境时要改心智，不要照抄路径。
+- 文档里出现了硬编码路径（如 `/home/guobing/My_Repositories/unitree_ros2/...`）；迁移环境时要改心智，不要照抄路径。
 - 文档里的 ROS2 版本和根目录脚本未必一致；出现 Jazzy/Humble/Foxy 混用时，以目标部署环境和 CI 为准。
 
 ## 本目录反模式

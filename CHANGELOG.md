@@ -51,7 +51,7 @@ Now the APIs in the following list are supported:
 | ROBOT_STATE_API_ID_SET_REPORT_FREQ| 1002 | int32_t RobotStateClient::SetReportFreq(); | humble |
 | ROBOT_STATE_API_ID_SERVICE_LIST| 1003 | int32_t RobotStateClient::ServiceList(); | humble |
 
-At the same time, you can also refer to the API implementation in `example/src/src/common/ros2_robot_state_client.cpp` to communicate with Go2 using ROS2 on your own. An example is in the file` example/src/src/go2/g2_robot_state_client.cpp`.
+At the same time, you can also refer to the API implementation in `example/src/src/common/ros2_robot_state_client.cpp` to communicate with Go2 using ROS2 on your own. An example is in the file `example/src/src/go2/go2_robot_state_client.cpp`.
 - **go2:** add some new supported go2 sports APIs
 Now the APIs in the following list are supported:
 
@@ -75,7 +75,7 @@ Now the APIs in the following list are supported:
 | ROBOT_SPORT_API_ID_AUTORECOVERY_GET | 2055  | void SportClient::AutoRecoveryGet(); | humble |
 | ROBOT_SPORT_API_ID_SWITCHAVOIDMODE  | 2058  | void SportClient::SwitchAvoidMode(); | foxy humble |
 
-At the same time, you can also refer to the API implementation in `example/src/src/common/ros2.sport_cient.cpp` to communicate with Go2 using ROS2 on your own. An example is in the file `example/src/src/go2/go2_Sport_cient.cpp`.
+At the same time, you can also refer to the API implementation in `example/src/src/common/ros2_sport_client.cpp` to communicate with Go2 using ROS2 on your own. An example is in the file `example/src/src/go2/go2_sport_client.cpp`.
 
 ### BREAKING CHANGE
 

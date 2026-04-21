@@ -45,6 +45,21 @@
 class EStopDetector {
 public:
     using Callback = std::function<void()>;
+    // 启动自检结果分三类：
+    // - kPassed: 当前电平符合“未触发”预期；
+    // - kTriggered: 按钮可能处于按下/回路已断开，但检测器本身还能工作；
+    // - kFault: GPIO 资源或读值本身异常，保护链不可用。
+    enum class StartupSelfCheckState {
+        kPassed,
+        kTriggered,
+        kFault
+    };
+
+    // 自检的结构化结果：状态供程序分支，report 供日志/TTS 直接复用。
+    struct StartupSelfCheckResult {
+        StartupSelfCheckState state;
+        std::string report;
+    };
 
     /**
      * libgpiod 后端构造函数
@@ -75,54 +90,59 @@ public:
 
     ~EStopDetector() { stop(); }
 
+    // 注册“按下沿”回调；回调在线程序列化执行，不会和释放回调并发重入。
     void onPressed(Callback cb) {
         std::lock_guard<std::mutex> lock(cb_mtx_);
         cb_pressed_ = std::move(cb);
     }
 
+    // 注册“释放沿”回调；新的回调会覆盖旧值。
     void onReleased(Callback cb) {
         std::lock_guard<std::mutex> lock(cb_mtx_);
         cb_released_ = std::move(cb);
     }
 
     // 启动自检：确认输入线电平符合“未按下”预期，避免无保护运行。
-    bool startupSelfCheck(std::string& report) const {
+    StartupSelfCheckResult startupSelfCheckDetailed() const {
+        std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mtx_);
         if (!line5_) {
-            report = "启动自检失败: 输入线 A 未初始化";
-            return false;
+            return {StartupSelfCheckState::kFault,
+                    "启动自检失败: 输入线 A 未初始化"};
         }
 
         int v_in_a = gpiod_line_get_value(line5_);
         if (v_in_a < 0) {
-            report = "启动自检失败: 无法读取输入线 A 电平（line " +
-                     std::to_string(kInputLineA) + ")";
-            return false;
+            return {StartupSelfCheckState::kFault,
+                    "启动自检失败: 无法读取输入线 A 电平（line " +
+                        std::to_string(kInputLineA) + ")"};
         }
 
         int v_in_b = -1;
         if (line6_) {
             v_in_b = gpiod_line_get_value(line6_);
             if (v_in_b < 0) {
-                report = "启动自检失败: 无法读取输入线 B 电平（line " +
-                         std::to_string(kInputLineB) + ")";
-                return false;
+                return {StartupSelfCheckState::kFault,
+                        "启动自检失败: 无法读取输入线 B 电平（line " +
+                            std::to_string(kInputLineB) + ")"};
             }
         }
 
         int expected_normal = active_low_ ? 1 : 0;
         if (v_in_a != expected_normal) {
-            report = "启动自检失败: 启动时输入线 A 电平异常（line " +
-                     std::to_string(kInputLineA) + "=" + std::to_string(v_in_a) +
-                     "，期望=" + std::to_string(expected_normal) +
-                     "），请确认急停按钮已复位且接线正常";
-            return false;
+            return {StartupSelfCheckState::kTriggered,
+                    "启动自检失败: 启动时输入线 A 电平异常（line " +
+                        std::to_string(kInputLineA) + "=" +
+                        std::to_string(v_in_a) + "，期望=" +
+                        std::to_string(expected_normal) +
+                        "），请确认急停按钮已复位且接线正常"};
         }
         if (line6_ && v_in_b != expected_normal) {
-            report = "启动自检失败: 启动时输入线 B 电平异常（line " +
-                     std::to_string(kInputLineB) + "=" + std::to_string(v_in_b) +
-                     "，期望=" + std::to_string(expected_normal) +
-                     "），请确认急停按钮已复位且接线正常";
-            return false;
+            return {StartupSelfCheckState::kTriggered,
+                    "启动自检失败: 启动时输入线 B 电平异常（line " +
+                        std::to_string(kInputLineB) + "=" +
+                        std::to_string(v_in_b) + "，期望=" +
+                        std::to_string(expected_normal) +
+                        "），请确认急停按钮已复位且接线正常"};
         }
 
         std::ostringstream oss;
@@ -137,23 +157,33 @@ public:
         } else {
             oss << "; 输出线=禁用";
         }
-        report = oss.str();
-        return true;
+        return {StartupSelfCheckState::kPassed, oss.str()};
     }
 
+    // 兼容旧接口：仅返回通过/失败，并把详细原因写回 report。
+    bool startupSelfCheck(std::string& report) const {
+        const StartupSelfCheckResult result = startupSelfCheckDetailed();
+        report = result.report;
+        return result.state == StartupSelfCheckState::kPassed;
+    }
+
+    // 返回最近一次采样/边沿处理后缓存的急停激活状态。
     bool isActive() const { return active_.load(std::memory_order_acquire); }
 
+    // 读取当前轮运行锁存的运行时错误；返回 true 表示已有故障需要上层处理。
     bool getRuntimeError(std::string& err) const {
         std::lock_guard<std::mutex> lock(error_mtx_);
         err = runtime_error_;
         return !runtime_error_.empty();
     }
 
+    // 读取事件序列号，供外部以“等待变化”的方式做健康巡检。
     uint64_t getEventSequence() const {
         std::lock_guard<std::mutex> lock(event_mtx_);
         return event_seq_;
     }
 
+    // 等待事件序列变化或检测器停止；超时返回 false，发生变化/停止返回 true。
     bool waitForEvent(uint64_t& last_seen_seq,
                       std::chrono::milliseconds timeout) const {
         std::unique_lock<std::mutex> lock(event_mtx_);
@@ -192,17 +222,18 @@ private:
     gpiod_line* line6_;
     gpiod_line* line_out_;
 
+    // 当前部署固定映射：A 线负责输入检测，B 线默认禁用，输出线提供固定 LOW 参考。
     static constexpr int kChipIndex = 1;
     static constexpr int kInputLineA = 15;
     static constexpr int kInputLineB = -1;   // -1 表示单线模式
     static constexpr int kOutputLowLine = 14;
-    static constexpr bool kRequireBoth = false;
+    static constexpr bool kRequireBoth = false;  // 双线启用时：false=任一线触发即判定急停
 
     Callback cb_pressed_;
     Callback cb_released_;
     mutable std::mutex cb_mtx_;
 
-    std::mutex lifecycle_mtx_;
+    mutable std::mutex lifecycle_mtx_;
     std::condition_variable lifecycle_cv_;
 
     std::mutex callback_queue_mtx_;
@@ -216,6 +247,7 @@ private:
     mutable std::mutex error_mtx_;
     std::string runtime_error_;
 
+    // 运行时故障只记录第一次，避免故障风暴期间重复覆盖更早的根因。
     void setRuntimeError(const std::string& err) {
         bool updated = false;
         {
@@ -228,6 +260,7 @@ private:
         if (updated) notifyEvent();
     }
 
+    // 仅允许当前运行代次在非 stop() 流程中上报故障，避免旧线程污染新一轮状态。
     bool shouldReportRuntimeError(uint64_t run_generation) const {
         return run_generation_.load(std::memory_order_acquire) == run_generation &&
                !stop_in_progress_.load(std::memory_order_acquire);
@@ -239,6 +272,7 @@ private:
         setRuntimeError(err);
     }
 
+    // 某一代线程检测到致命故障后，只负责把本代运行标志拉低，由外层决定后续动作。
     void requestStopForGeneration(uint64_t run_generation) {
         if (run_generation_.load(std::memory_order_acquire) != run_generation) return;
         running_.store(false, std::memory_order_release);
@@ -251,6 +285,7 @@ private:
         runtime_error_.clear();
     }
 
+    // epoll fd 可能在 stop()/异常恢复路径多次经过，这里做幂等关闭。
     void closeEpollFd() {
         if (epoll_fd_ >= 0) {
             ::close(epoll_fd_);
@@ -258,6 +293,7 @@ private:
         }
     }
 
+    // 推进事件序列号，唤醒外部监工线程和 waitForEvent() 调用方。
     void notifyEvent() {
         {
             std::lock_guard<std::mutex> lock(event_mtx_);
@@ -282,6 +318,7 @@ private:
         callback_queue_cv_.notify_one();
     }
 
+    // 释放 GPIO line/chip 句柄；线程与 epoll fd 需在外层先收好后再调用这里。
     void cleanupResources() {
         if (line5_) { gpiod_line_release(line5_); line5_ = nullptr; }
         if (line6_) { gpiod_line_release(line6_); line6_ = nullptr; }
@@ -289,20 +326,31 @@ private:
         if (chip_) { gpiod_chip_close(chip_); chip_ = nullptr; }
     }
 
-    // 读取当前 GPIO 电平并计算急停状态；读取失败时保留旧状态。
-    bool sampleEStop() const {
+    // 读取当前 GPIO 电平并计算急停状态；读取失败时明确返回错误而不是静默沿用旧状态。
+    bool sampleEStop(bool& sampled_state, std::string& error) const {
         int v5 = gpiod_line_get_value(line5_);
-        if (v5 < 0) return active_.load();
+        if (v5 < 0) {
+            error = "gpiod_line_get_value failed for input line A";
+            return false;
+        }
         bool p5 = active_low_ ? (v5 == 0) : (v5 == 1);
 
-        if (!line6_) return p5;
+        if (!line6_) {
+            sampled_state = p5;
+            return true;
+        }
 
         int v6 = gpiod_line_get_value(line6_);
-        if (v6 < 0) return active_.load();
+        if (v6 < 0) {
+            error = "gpiod_line_get_value failed for input line B";
+            return false;
+        }
         bool p6 = active_low_ ? (v6 == 0) : (v6 == 1);
-        return kRequireBoth ? (p5 && p6) : (p5 || p6);
+        sampled_state = kRequireBoth ? (p5 && p6) : (p5 || p6);
+        return true;
     }
 
+    // 防止旧一轮遗留线程在新一轮 start() 后继续操作共享状态。
     bool isCurrentGeneration(uint64_t run_generation) const {
         return run_generation_.load(std::memory_order_acquire) == run_generation;
     }
@@ -406,7 +454,13 @@ private:
             // 统一消抖窗口，降低机械抖动带来的误触发概率。
             std::this_thread::sleep_for(std::chrono::milliseconds(debounce_ms_));
 
-            bool new_state = sampleEStop();
+            bool new_state = false;
+            std::string sample_error;
+            if (!sampleEStop(new_state, sample_error)) {
+                setRuntimeErrorForGeneration(run_generation, sample_error);
+                requestStopForGeneration(run_generation);
+                break;
+            }
             bool old_state = active_.load(std::memory_order_acquire);
             if (new_state == old_state) continue;
 
@@ -451,6 +505,7 @@ private:
     }
 
 public:
+    // 初始化 GPIO 资源、启动事件线程和回调线程，并在启动末尾完成一次初始采样。
     void start() {
         std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mtx_);
         if (stop_in_progress_.load(std::memory_order_acquire)) {
@@ -553,8 +608,13 @@ public:
                                            this,
                                            run_generation);
 
-            // 启动时先采样一次，避免第一拍状态未知。
-            active_.store(sampleEStop(), std::memory_order_release);
+            // 启动时先采样一次，避免第一拍状态未知；若此时读值失败，直接按启动失败处理。
+            bool initial_state = false;
+            std::string sample_error;
+            if (!sampleEStop(initial_state, sample_error)) {
+                throw std::runtime_error(sample_error);
+            }
+            active_.store(initial_state, std::memory_order_release);
             thread_ = std::thread(&EStopDetector::eventLoop, this, run_generation);
             notifyEvent();
         } catch (const std::exception& e) {
@@ -586,6 +646,7 @@ public:
         }
     }
 
+    // 同步停止检测器：关闭 fd、唤醒线程、等待退出并回收全部 GPIO 资源。
     void stop() {
         std::thread event_thread_to_join;
         std::thread callback_thread_to_join;

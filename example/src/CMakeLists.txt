@@ -15,6 +15,11 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# Keep ament/CMake Python helpers on the distro interpreter instead of user-local ones.
+if(EXISTS "/usr/bin/python3")
+  set(Python3_EXECUTABLE "/usr/bin/python3" CACHE FILEPATH "Python3 interpreter for ament helpers" FORCE)
+  set(PYTHON_EXECUTABLE "/usr/bin/python3" CACHE FILEPATH "Python interpreter for legacy CMake helpers" FORCE)
+endif()
 
 include_directories(include include/common include/nlohmann)
 link_directories(src)

@@ -36,15 +36,19 @@ example/
 - 许多示例显式要求 `cxx_std_20`，即使包默认是 C++14。
 - 共享头实现分离：声明常在 `include/common`，实现常在 `src/common`。
 - `yaml-cpp` 不是硬依赖；`g1_dual_arm_example` 仅在版本满足时构建。
+- `g1_emergency_stop_node` 只有检测到 `libgpiod` 时才会在主包中构建；缺库时会直接跳过。
 - `src/src/g1/GPIO` 是独立 CMake 小工程，不受本文件里的 ROS2 package 目标清单管理。
+- 测试面很薄：`BUILD_TESTING` 下主要是 `ament_lint_auto`，默认没有单元测试树可依赖。
 
 ## 本目录反模式
 - 不要编辑 `src/include/nlohmann/**` 来修业务问题。
 - 不要只新增 `add_executable` 不补 `ament_target_dependencies` 或 `install`。
 - 不要忽视机器人型号分层；`unitree_go` 与 `unitree_hg` 消息不可混用。
+- 不要假设 `g1_emergency_stop_node` 一定存在；无 `libgpiod-dev` 的机器上它不会被加入目标列表。
 - 不要在真实机器人上直接运行带明显风险的示例而不看注释/文档；`g1_arm_action_example.cpp` 已提示某些动作可能导致跌倒。
 
 ## 备注
 - 本目录文件最多、变化面最广；未来 agent 处理“新增示例/改示例/排查构建失败”应先读这里。
 - G1 子树现在已有更细一层知识库：`src/src/g1/AGENTS.md` 与 `src/src/g1/GPIO/AGENTS.md`。
+- 本轮评估未继续为 `go2/`、`b2/`、`b2w/`、`h1-2/`、`common/` 单独建 AGENTS：局部文件少、约定仍由本层覆盖。
 - 若只做文档或 CI 变更，不必下钻到本目录。

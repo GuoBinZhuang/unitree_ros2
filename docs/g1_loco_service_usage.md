@@ -24,13 +24,13 @@
 源码：
 
 ```bash
-/home/guobing/g1_text_ws/unitree_ros2/example/src/src/g1/high_level/g1_loco_service_example.cpp
+/home/guobing/My_Repositories/unitree_ros2/example/src/src/g1/high_level/g1_loco_service_example.cpp
 ```
 
 可执行文件：
 
 ```bash
-/home/guobing/g1_text_ws/unitree_ros2/example/install/unitree_ros2_example/bin/g1_loco_service_example
+/home/guobing/My_Repositories/unitree_ros2/example/install/unitree_ros2_example/lib/unitree_ros2_example/g1_loco_service_example
 ```
 
 ## 3. 运行前准备
@@ -39,8 +39,8 @@
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source /home/guobing/g1_text_ws/unitree_ros2/cyclonedds_ws/install/setup.bash
-source /home/guobing/g1_text_ws/unitree_ros2/example/install/setup.bash
+source /home/guobing/My_Repositories/unitree_ros2/cyclonedds_ws/install/setup.bash
+source /home/guobing/My_Repositories/unitree_ros2/example/install/setup.bash
 ```
 
 确保：

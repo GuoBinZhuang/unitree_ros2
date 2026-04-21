@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <chrono>
 #include <future>
 #include <map>
 #include <memory>
@@ -28,19 +29,33 @@ class MotionSwitchClient {
   BaseClient base_client_;
 
  public:
-  explicit MotionSwitchClient(rclcpp::Node *node)
+  explicit MotionSwitchClient(
+      rclcpp::Node *node,
+      const rclcpp::CallbackGroup::SharedPtr& callback_group = nullptr)
       : node_(node),
-        base_client_(node_, "/api/motion_switcher/request", "/api/motion_switcher/response") {}
+        base_client_(node_, "/api/motion_switcher/request",
+                     "/api/motion_switcher/response", callback_group) {}
 
   int32_t CheckMode(std::string &form, std::string &name) {
+    return CheckMode(form, name, std::chrono::seconds(5));
+  }
+
+  int32_t CheckMode(std::string &form, std::string &name,
+                    std::chrono::milliseconds timeout) {
     unitree_api::msg::Request req;
     req.header.identity.api_id = MOTION_SWITCHER_API_ID_CHECK_MODE;
 
     nlohmann::json js_res;
-    auto result = base_client_.Call(req, js_res);
+    auto result = base_client_.Call(req, js_res, timeout);
     if (result == 0) {
-      js_res["name"].get_to(name);
-      js_res["form"].get_to(form);
+      try {
+        js_res["name"].get_to(name);
+        js_res["form"].get_to(form);
+      } catch (const nlohmann::detail::exception &e) {
+        RCLCPP_ERROR(node_->get_logger(),
+                     "Failed to decode motion mode response: %s", e.what());
+        return UT_ROBOT_TASK_UNKNOWN_ERROR;
+      }
     }
     return result;
   }

@@ -19,13 +19,13 @@
 可执行程序位于：
 
 ```bash
-/home/guobing/g1_text_ws/unitree_ros2/example/install/unitree_ros2_example/bin/g1_motion_switcher_example
+/home/guobing/My_Repositories/unitree_ros2/example/install/unitree_ros2_example/lib/unitree_ros2_example/g1_motion_switcher_example
 ```
 
 源码位于：
 
 ```bash
-/home/guobing/g1_text_ws/unitree_ros2/example/src/src/g1/high_level/g1_motion_switcher_example.cpp
+/home/guobing/My_Repositories/unitree_ros2/example/src/src/g1/high_level/g1_motion_switcher_example.cpp
 ```
 
 ## 3. 运行前准备
@@ -36,8 +36,8 @@
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source /home/guobing/g1_text_ws/unitree_ros2/cyclonedds_ws/install/setup.bash
-source /home/guobing/g1_text_ws/unitree_ros2/example/install/setup.bash
+source /home/guobing/My_Repositories/unitree_ros2/cyclonedds_ws/install/setup.bash
+source /home/guobing/My_Repositories/unitree_ros2/example/install/setup.bash
 ```
 
 ### 3.2 连接机器人
@@ -151,7 +151,7 @@ g1_motion_switcher_example --check --release
 如果命令找不到，也可以直接运行二进制文件：
 
 ```bash
-/home/guobing/g1_text_ws/unitree_ros2/example/install/unitree_ros2_example/bin/g1_motion_switcher_example --check
+/home/guobing/My_Repositories/unitree_ros2/example/install/unitree_ros2_example/lib/unitree_ros2_example/g1_motion_switcher_example --check
 ```
 
 ## 9. 示例流程

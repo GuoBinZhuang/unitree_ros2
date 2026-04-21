@@ -1,6 +1,7 @@
 #ifndef __UT_ROBOT_G1_LOCO_CLIENT_HPP__
 #define __UT_ROBOT_G1_LOCO_CLIENT_HPP__
 
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -42,18 +43,31 @@ class LocoClient {
   BaseClient base_client_;
 
  public:
-  explicit LocoClient(rclcpp::Node* node)
+  explicit LocoClient(
+      rclcpp::Node* node,
+      const rclcpp::CallbackGroup::SharedPtr& callback_group = nullptr)
       : node_(node),
-        base_client_(node_, "/api/sport/request", "/api/sport/response") {}
+        base_client_(node_, "/api/sport/request", "/api/sport/response",
+                     callback_group) {}
 
   /*Low Level API Call*/
   int32_t GetFsmId(int& fsm_id) {
+    return GetFsmId(fsm_id, std::chrono::seconds(5));
+  }
+
+  int32_t GetFsmId(int& fsm_id, std::chrono::milliseconds timeout) {
     unitree_api::msg::Request req;
     req.header.identity.api_id = ROBOT_API_ID_LOCO_GET_FSM_ID;
     nlohmann::json js;
-    int32_t ret = base_client_.Call(req, js);
+    int32_t ret = base_client_.Call(req, js, timeout);
     if (ret == 0) {
-      js["data"].get_to(fsm_id);
+      try {
+        js["data"].get_to(fsm_id);
+      } catch (const nlohmann::detail::exception &e) {
+        RCLCPP_ERROR(node_->get_logger(),
+                     "Failed to decode FSM id response: %s", e.what());
+        return UT_ROBOT_TASK_UNKNOWN_ERROR;
+      }
     }
 
     return ret;
@@ -123,12 +137,16 @@ class LocoClient {
   }
 
   int32_t SetFsmId(int fsm_id) {
+    return SetFsmId(fsm_id, std::chrono::seconds(5));
+  }
+
+  int32_t SetFsmId(int fsm_id, std::chrono::milliseconds timeout) {
     unitree_api::msg::Request req;
     req.header.identity.api_id = ROBOT_API_ID_LOCO_SET_FSM_ID;
     nlohmann::json js;
     js["data"] = fsm_id;
     req.parameter = js.dump();
-    return base_client_.Call(req);
+    return base_client_.Call(req, timeout);
   }
 
   int32_t SetBalanceMode(int balance_mode) {
@@ -189,6 +207,8 @@ class LocoClient {
 
   /*High Level API Call*/
   int32_t Damp() { return SetFsmId(1); }
+
+  int32_t Damp(std::chrono::milliseconds timeout) { return SetFsmId(1, timeout); }
 
   int32_t Start() { return SetFsmId(500); }
 
