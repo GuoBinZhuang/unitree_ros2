@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
+
 #include <rclcpp/node.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -19,9 +22,11 @@ constexpr int32_t ROBOT_API_ID_AUDIO_STOP_PLAY = 1004;
 constexpr int32_t ROBOT_API_ID_AUDIO_GET_VOLUME = 1005;
 constexpr int32_t ROBOT_API_ID_AUDIO_SET_VOLUME = 1006;
 constexpr int32_t ROBOT_API_ID_AUDIO_SET_RGB_LED = 1010;
+constexpr auto ROBOT_API_AUDIO_TTS_TIMEOUT = std::chrono::seconds(20);
+constexpr auto ROBOT_API_AUDIO_LED_TIMEOUT = std::chrono::seconds(5);
 
 class AudioClient : public rclcpp::Node {
-  uint32_t tts_index_ = 0;
+  std::atomic<uint32_t> tts_index_{0};
   BaseClient base_client_;
 
  public:
@@ -29,15 +34,17 @@ class AudioClient : public rclcpp::Node {
       : rclcpp::Node("audio_client"),
         base_client_(this, "/api/voice/request", "/api/voice/response") {};
 
-  int32_t TtsMaker(const std::string &text, int32_t speaker_id) {
+  int32_t TtsMaker(
+      const std::string &text, int32_t speaker_id,
+      std::chrono::milliseconds timeout = ROBOT_API_AUDIO_TTS_TIMEOUT) {
     nlohmann::json js;
     unitree_api::msg::Request req;
     req.header.identity.api_id = ROBOT_API_ID_AUDIO_TTS;
-    js["index"] = tts_index_++;
+    js["index"] = tts_index_.fetch_add(1, std::memory_order_relaxed);
     js["text"] = text;
     js["speaker_id"] = speaker_id;
     req.parameter = js.dump();
-    return base_client_.Call(req);
+    return base_client_.Call(req, timeout);
   }
 
   int32_t GetVolume(uint8_t &volume) {
@@ -81,7 +88,9 @@ class AudioClient : public rclcpp::Node {
     return base_client_.Call(req);
   }
 
-  int32_t LedControl(uint8_t r, uint8_t g, uint8_t b) {
+  int32_t LedControl(
+      uint8_t r, uint8_t g, uint8_t b,
+      std::chrono::milliseconds timeout = ROBOT_API_AUDIO_LED_TIMEOUT) {
     unitree_api::msg::Request req;
     req.header.identity.api_id = ROBOT_API_ID_AUDIO_SET_RGB_LED;
     nlohmann::json js;
@@ -89,7 +98,7 @@ class AudioClient : public rclcpp::Node {
     js["G"] = g;
     js["B"] = b;
     req.parameter = js.dump();
-    return base_client_.Call(req);
+    return base_client_.Call(req, timeout);
   }
 };
 

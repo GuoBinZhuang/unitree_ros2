@@ -1,0 +1,135 @@
+{
+  "configById": {
+    "RawMessages!lowstate": {
+      "topicPath": "/lowstate"
+    },
+    "RawMessages!imu": {
+      "topicPath": "/secondary_imu"
+    },
+    "RawMessages!wireless": {
+      "topicPath": "/wirelesscontroller"
+    },
+    "RawMessages!lidarImu": {
+      "topicPath": "/utlidar/imu_livox_mid360"
+    },
+    "Plot!imuGyro": {
+      "legendDisplay": "floating",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "paths": [
+        {
+          "value": "/secondary_imu.gyroscope[0]"
+        },
+        {
+          "value": "/secondary_imu.gyroscope[1]"
+        },
+        {
+          "value": "/secondary_imu.gyroscope[2]"
+        }
+      ]
+    },
+    "Plot!imuAccel": {
+      "legendDisplay": "floating",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "paths": [
+        {
+          "value": "/secondary_imu.accelerometer[0]"
+        },
+        {
+          "value": "/secondary_imu.accelerometer[1]"
+        },
+        {
+          "value": "/secondary_imu.accelerometer[2]"
+        }
+      ]
+    },
+    "Plot!power": {
+      "legendDisplay": "floating",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "paths": [
+        {
+          "value": "/lowstate.power_v"
+        },
+        {
+          "value": "/lowstate.power_a"
+        }
+      ]
+    },
+    "Plot!joint": {
+      "legendDisplay": "floating",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "paths": [
+        {
+          "value": "/lowstate.motor_state[0].q"
+        },
+        {
+          "value": "/lowstate.motor_state[1].q"
+        },
+        {
+          "value": "/lowstate.motor_state[2].q"
+        }
+      ]
+    },
+    "Plot!footForce": {
+      "legendDisplay": "floating",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "paths": [
+        {
+          "value": "/lowstate.foot_force[0]"
+        },
+        {
+          "value": "/lowstate.foot_force[1]"
+        },
+        {
+          "value": "/lowstate.foot_force[2]"
+        },
+        {
+          "value": "/lowstate.foot_force[3]"
+        }
+      ]
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1,
+    "messageOrder": "receiveTime"
+  },
+  "layout": {
+    "direction": "row",
+    "first": {
+      "direction": "column",
+      "first": {
+        "direction": "row",
+        "first": "Plot!imuGyro",
+        "second": "Plot!imuAccel"
+      },
+      "second": {
+        "direction": "column",
+        "first": {
+          "direction": "row",
+          "first": "Plot!power",
+          "second": "Plot!joint"
+        },
+        "second": "Plot!footForce"
+      }
+    },
+    "second": {
+      "direction": "column",
+      "first": {
+        "direction": "row",
+        "first": "RawMessages!lowstate",
+        "second": "RawMessages!imu"
+      },
+      "second": {
+        "direction": "row",
+        "first": "RawMessages!wireless",
+        "second": "RawMessages!lidarImu"
+      }
+    }
+  }
+}

@@ -3,9 +3,9 @@ Unitree robot ROS2 support
 [TOC]
 
 # Introduction
-Unitree SDK2 implements an easy-to-use robot communication mechanism based on Cyclonedds, which enable developers to achieve robot communication and control (**Supports Unitree Go2, B2, and H1**). See: https://github.com/unitreerobotics/unitree_sdk2
+Unitree SDK2 implements an easy-to-use robot communication mechanism based on Cyclonedds, which enable developers to achieve robot communication and control (**Supports Unitree Go2, B2/B2W, G1, H1, and H1-2**). See: https://github.com/unitreerobotics/unitree_sdk2
 
-DDS is alos used in ROS2 as a communication mechanism. Therefore, the underlying layers of Unitree Go2, B2, and H1 robots can be compatible with ROS2. ROS2 msg can be direct used for communication and control of Unitree robot without wrapping the SDK interface.
+DDS is alos used in ROS2 as a communication mechanism. Therefore, the underlying layers of Unitree Go2, B2/B2W, G1, H1, and H1-2 robots can be compatible with ROS2. ROS2 msg can be direct used for communication and control of Unitree robot without wrapping the SDK interface.
 
 # Configuration
 ## System requirements
@@ -31,7 +31,7 @@ ctrl+alt+T open the terminal, clone the repository: https://github.com/unitreero
 git clone https://github.com/unitreerobotics/unitree_ros2
 ```
 where:
-- **cyclonedds_ws**: The workspace of Unitree ros2 package. The msg for Unitree robot are supplied in the subfolder cyclonedds_ws/unitree/unitree_go and cyclonedds_ ws/unitree/unitree_api.
+- **cyclonedds_ws**: The workspace of Unitree ROS2 packages. Robot messages are supplied in `cyclonedds_ws/src/unitree/unitree_go`, `cyclonedds_ws/src/unitree/unitree_hg`, and `cyclonedds_ws/src/unitree/unitree_api`.
 - **example**: The workspace of some examples.
 
 
@@ -70,8 +70,8 @@ cd ..
 colcon build --packages-select cyclonedds #Compile cyclone-dds package
 ```
 
-### 3. Compile unitree_go and unitree_api packages
-After compiling cyclone-dds, ROS2 dependencies is required for compilation of the unitree_go and unitree_api packages. Therefore, before compiling, it is necessary to source the environment of ROS2.
+### 3. Compile unitree_go, unitree_hg and unitree_api packages
+After compiling cyclone-dds, ROS2 dependencies is required for compilation of the unitree_go, unitree_hg and unitree_api packages. Therefore, before compiling, it is necessary to source the environment of ROS2.
 ```bash
 source /opt/ros/foxy/setup.bash # source ROS2 environment
 colcon build # Compile all packages in the workspace
@@ -144,11 +144,11 @@ The source code of examples locates at `/example/src/src`.
 - read_low_state: Read the low state from Go2/B2
 - read_low_state_hg: Read the low state from G1/H1/H1-2
 - read_motion_state: Read the sport mode state from Go2/B2
-- read_ wireless_controller: Read the state of wireless controller from G1/Go2/B2
+- read_wireless_controller: Read the state of wireless controller from G1/Go2/B2
 - record_bag: Ros bag recording example.
 - go2/go2_sport_client: High level control for Go2.
 - go2/go2_stand_example: Stand example for Go2.
-- go2/go2_robot_state_client：Robot State Example for Go2。
+- go2/go2_robot_state_client: Robot State Example for Go2.
 
 Open a terminal and input:
 ```bash
@@ -158,7 +158,7 @@ colcon build
 ```
 After compilation, run in the terminal:
 ```bash
-./install/unitree_ros2_example/bin/read_motion_state 
+./install/unitree_ros2_example/lib/unitree_ros2_example/read_motion_state
 ```
 You can see the robot status information output from the terminal:
 
@@ -222,9 +222,9 @@ float32[12] foot_speed_body //foot velcities in body frame
 ```
 For details, see：https://support.unitree.com/home/en/developer/sports_services.
 
-Complete examples is in /example/src/read_motion_state.cpp. Run in the terminal:
+Complete example is in `example/src/src/read_motion_state.cpp`. Run in the terminal:
 ```bash
-./install/unitree_ros2_example/bin/read_motion_state 
+./install/unitree_ros2_example/lib/unitree_ros2_example/read_motion_state
 ```
 
 ### 2. Low-level state
@@ -269,7 +269,7 @@ uint32 lost
 uint32[2] reserve
 ```
 For details, see: https://support.unitree.com/home/en/developer/Basic_services
-Complete examples is in example/src/read_low_state.cpp. 
+Complete example is in `example/src/src/read_low_state.cpp`.
 
 ### 3. Wireless controller
 
@@ -284,14 +284,14 @@ uint16 keys // key values
 ```
 For details, see: https://support.unitree.com/home/en/developer/Get_remote_control_status
 
-Complete examples is in example/src/read_wireless_controller.cpp.
+Complete example is in `example/src/src/read_wireless_controller.cpp`. Run `./install/unitree_ros2_example/lib/unitree_ros2_example/read_wireless_controller` in the terminal.
 
 
 ## Robot control
 ### 1. Sportmode 
 Sportmode control is implemented by request/response mechanism. Sportmode control  can be achieved by sending unitree_api::msg::Request msg to the "/api/sport/request" topic.
 
-The Request msg for different sportmode interfaces can be obtained by the SportClient (/example/src/common/ros2_sport_client.cpp) class. For example, control the robot to reach a desired attitude: 
+The Request msg for different sportmode interfaces can be obtained by the SportClient (`example/src/src/common/ros2_sport_client.cpp`) class. For example, control the robot to reach a desired attitude:
 ```C++
  //Create a ros2 pubilsher 
 rclcpp::Publisher<unitree_api::msg::Request>::SharedPtr req_puber = this->create_publisher<unitree_api::msg::Request>("/api/sport/request", 10);
@@ -304,7 +304,7 @@ req_puber->publish(req); // Publish request msg
 ```
 For details about SportClient：https://support.unitree.com/home/en/developer/sports_services
 
-Complete examples is in：example/src/sport_mode_ctrl.cpp. Run ./install/unitree_ros2_example/bin/sport_mode_ctrl in terminal. After 1 second of program startup, the robot will walk back and forth in the x direction.
+Complete example is in `example/src/src/go2/go2_sport_client.cpp`. Run `./install/unitree_ros2_example/lib/unitree_ros2_example/go2_sport_client` in the terminal. After 1 second of program startup, the robot will walk back and forth in the x direction.
 
 
 ### 2. Motor control
@@ -337,7 +337,7 @@ unsigned long reserve[3];
 ```
 For details about low_cmd：https://support.unitree.com/home/en/developer/Basic_services
 
-Complete examples is in：example/src/low_level_ctrl.cpo. Run ./install/unitree_ros2_example/bin/sport_mode_ctrl in terminal. The hip motor and calf motor of the RL leg will rotate to the corresponding joint angle.
+Complete example is in `example/src/src/low_level_ctrl.cpp`. Run `./install/unitree_ros2_example/lib/unitree_ros2_example/low_level_ctrl` in the terminal. The hip motor and calf motor of the RL leg will rotate to the corresponding joint angle.
 
 ## Rviz
 We can also use rviz to visualize Unitree robot data.The following is an example of visualizing robot lidar data:
@@ -368,5 +368,3 @@ Add Pointcloud topic: utlidar/cloud in rviz2 and modify Fixed frame to utlidar_l
 
 ![image](docs/image/piFtsyD.png)
 ![image](docs/image/piFtyOe.png)
-
-
