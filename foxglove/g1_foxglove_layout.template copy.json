@@ -1,13 +1,13 @@
 {
   "cameraState": {
     "perspective": true,
-    "distance": 3.609999999992936,
-    "phi": 64.59924583757595,
-    "thetaOffset": -137.63067052754903,
+    "distance": 4.2105263157782025,
+    "phi": 86.32335219871277,
+    "thetaOffset": -156.59622986214887,
     "targetOffset": [
-      0,
-      0,
-      0
+      -0.10045854436039228,
+      0.1341421907612407,
+      1.587354053036112e-16
     ],
     "target": [
       0,
@@ -71,14 +71,14 @@
       "label": "Grid",
       "instanceId": "5d014f42-6c60-4dea-8be4-c5a76a64aa7f",
       "layerId": "foxglove.Grid",
-      "size": 10,
-      "divisions": 10,
-      "lineWidth": 1,
+      "size": 12,
+      "divisions": 12,
+      "lineWidth": 0.5,
       "color": "#248eff",
       "position": [
         0,
         0,
-        0
+        -1.25
       ],
       "rotation": [
         0,

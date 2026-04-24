@@ -30,6 +30,7 @@ set (
   unitree_hg
   unitree_api
   rclcpp
+  sensor_msgs
   std_msgs
   rosbag2_cpp
 )
@@ -40,6 +41,7 @@ find_package(unitree_go REQUIRED)
 find_package(unitree_hg REQUIRED)
 find_package(unitree_api REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 find_package(Eigen3 REQUIRED)
@@ -64,6 +66,9 @@ target_compile_features(go2_robot_state_client PRIVATE cxx_std_20)
 
 add_executable(g1_arm_sdk_dds_example src/g1/high_level/g1_arm_sdk_dds_example.cpp src/common/motor_crc.cpp)
 target_compile_features(g1_arm_sdk_dds_example PRIVATE cxx_std_20)
+
+add_executable(g1_lowstate_to_joint_states src/g1/high_level/g1_lowstate_to_joint_states.cpp)
+target_compile_features(g1_lowstate_to_joint_states PRIVATE cxx_std_20)
 
 add_executable(g1_arm_action_example src/g1/high_level/g1_arm_action_example.cpp src/common/motor_crc.cpp)
 target_compile_features(g1_arm_action_example PRIVATE cxx_std_20)
@@ -123,6 +128,7 @@ ament_target_dependencies(go2_stand_example ${DEPENDENCY_LIST})
 
 ament_target_dependencies(go2_robot_state_client ${DEPENDENCY_LIST})
 ament_target_dependencies(g1_arm_sdk_dds_example ${DEPENDENCY_LIST})
+ament_target_dependencies(g1_lowstate_to_joint_states ${DEPENDENCY_LIST})
 ament_target_dependencies(g1_arm_action_example ${DEPENDENCY_LIST})
 ament_target_dependencies(g1_dex3_example ${DEPENDENCY_LIST})
 target_include_directories(g1_dex3_example PRIVATE ${EIGEN3_INCLUDE_DIR})
@@ -168,6 +174,7 @@ install(TARGETS
         go2_stand_example
         go2_robot_state_client
         g1_arm_sdk_dds_example
+        g1_lowstate_to_joint_states
         g1_arm_action_example
         g1_dex3_example
         g1_loco_client_example

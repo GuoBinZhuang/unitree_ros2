@@ -1102,7 +1102,7 @@ int main(int argc, char **argv) {
     try {
       if (!rclcpp::ok()) {
         rclcpp::InitOptions init_options;
-        init_options.shutdown_on_sigint = false;
+        init_options.shutdown_on_signal = false;
         rclcpp::init(argc, argv, init_options);
       }
 
