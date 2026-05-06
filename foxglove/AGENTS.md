@@ -1,37 +1,130 @@
 # foxglove 知识库
 
 ## 概览
-- 这里不是 ROS2 package；主要放 G1 可视化资源：URDF/MJCF 模型、mesh、Foxglove layout 模板，以及桥接脚本。
+- 这里不是 ROS2 package；主要放 G1 可视化资产、Foxglove layout、桥接脚本和现场排查文档。
+- 当前 G1 可视化主入口是 `g1_foxglove.json` + `run_foxglove_bridge_g1.sh`，不是旧的 `g1_foxglove_layout.template.json`。
+- 官方参照源是 `/home/guobing/My_Repositories/unitree_ros/robots/g1_description`；当前 `g1_description/g1_29dof_rev_1_0_with_inspire_hand_FTP.urdf` 已确认与官方同名文件一致。
 
 ## 结构
 ```text
 foxglove/
-├── g1_description/                # G1 模型变体；README 列 mode_machine 与废弃型号
-├── g1_foxglove_layout.template.json  # 面板布局；topicPath 约定在这里
-└── run_foxglove_bridge_g1.sh      # 仅启动 foxglove_bridge 的局部脚本
+├── g1_description/                    # G1 官方 URDF/MJCF/mesh 静态资产；不参与 colcon build
+├── g1_foxglove.json                   # 当前推荐 Foxglove 工作区布局：D435i RGB/Depth/PointCloud + G1 + Mid-360 + 右手触觉
+├── g1_foxglove_audit.md               # 官方资源对照、布局/topic/TF 审计结论
+├── tf_g1_realsense.md                 # G1 + RealSense + Foxglove TF 说明
+└── run_foxglove_bridge_g1.sh          # 本机 Foxglove bridge + G1 JointState/TF 辅助启动脚本
 ```
 
 ## 优先查看
 | 任务 | 位置 | 备注 |
 |---|---|---|
-| 选 G1 模型变体 | `g1_description/README.md` | 先看 `mode_machine` 对照表，再选 URDF/MJCF 文件 |
-| 改 Foxglove 3D/Plot 面板 | `g1_foxglove_layout.template.json` | `topicPath`、3D 图层、plot 路径都写死在模板里 |
-| 改局部 bridge 话题白名单 | `run_foxglove_bridge_g1.sh` | 当前脚本只启动 bridge，且与根层同名脚本内容一致 |
-| 对照根层同名脚本 | `../run_foxglove_bridge_g1.sh` | 当前内容与本目录脚本一致，不存在额外 `robot_state_publisher` 步骤 |
+| 现场启动/改白名单 | `run_foxglove_bridge_g1.sh` | 改 topic 时同步检查 layout 和 `TOPIC_PATTERNS` |
+| 当前 Foxglove 布局 | `g1_foxglove.json` | 默认使用 `/camera/*`、`/utlidar/cloud_livox_mid360`、`/joint_states` |
+| TF/RealSense 排查 | `tf_g1_realsense.md` | 先看推荐 TF 树，再查 `Missing transform` |
+| 官方资源对照结论 | `g1_foxglove_audit.md` | 记录当前配置相对 `unitree_ros/robots/g1_description` 的检查结果 |
+| 选 G1 模型变体 | `g1_description/README.md` | 先看 `mode_machine`、手部配置、腰部锁定状态 |
+
+## 当前布局约定
+- `g1_foxglove.json` 当前包含：
+  - D435i RGB：`/camera/color/image_raw`
+  - D435i Depth：`/camera/depth/image_rect_raw`
+  - D435i PointCloud：`/camera/depth/color/points`
+  - Inspire Hand 右手触觉图：`/inspire_hand/touch/right/image`
+  - G1 URDF：`g1_29dof_rev_1_0_with_inspire_hand_FTP.urdf`
+  - Mid-360 点云：`/utlidar/cloud_livox_mid360`
+- 不要在 3D 面板里重新加入 `projectionFrameId`、`frameLocked`、`cameraInfoTopic` 来投影相机图像；这些字段曾导致 `camera_color_optical_frame -> pelvis` 缺 TF 报错。
+- RGB/Depth 应作为普通 Image 面板显示；点云和 URDF 通过真实 TF 树对齐。
+- 当前按现场 G1 实际 topic list 消费 `/camera/*`。如果机器人端 RealSense topic 改成 `/camera/camera/*` 或 `/camera/d435/*`，必须同时改 `g1_foxglove.json` 的 topic 和脚本里的 `REALSENSE_TOPIC_PREFIX`。
+- `run_foxglove_bridge_g1.sh` 默认只桥接 RealSense 标准 ROS 消息话题：RGB/Depth image、camera_info、aligned depth、点云和 `/camera/imu`。不要默认桥接 `metadata`、`imu_info`、`extrinsics`，这些依赖 `realsense2_camera_msgs`，本机未安装该包时会让 `foxglove_bridge` 反复报 schemaDefinition 错误。
+
+## TF 约定
+- 官方 G1 模型根帧是 `pelvis`，不是 `body`、`base_link` 或 `trunk`。
+- 官方 G1 URDF 已包含：
+  - `torso_link -> d435_link`
+  - `torso_link -> mid360_link`
+- D435i 安装姿态保持本地官方 URDF 原值：`torso_link -> d435_link` 使用 `xyz="0.0576235 0.01753 0.42987"`、`rpy="0 0.8307767239493009 0"`，pitch 约 `47.6°`，roll/yaw 为 0。宇树服务控制台 2026-01-23 说明中的 Z 值为 `0.41987`，差 0.01 m，当前不修改官方模型资产。
+- 推荐 TF 树：
+```text
+pelvis
+└── waist_yaw_link -> waist_roll_link -> torso_link
+    ├── mid360_link -> livox_frame
+    └── d435_link -> camera_link
+        ├── camera_color_frame -> camera_color_optical_frame
+        └── camera_depth_frame -> camera_depth_optical_frame
+```
+- `robot_state_publisher` 负责 G1 URDF 内部 TF；RealSense wrapper 负责 `camera_link -> camera_*_optical_frame`；静态 TF 只负责跨系统连接，例如 `d435_link -> camera_link`。
+- `body` 只作为兼容别名使用。脚本默认发布 `pelvis -> body`，用于兼容机器人端 `frame_id=body` 的数据；如果机器人端已经发布 body 相关 TF，设置 `ENABLE_G1_BODY_FRAME_ALIAS=false` 避免重复。
+- D435i 不应长期挂到 `pelvis` 或 `body`；应挂到 `d435_link`。Mid-360 不应挂到 `pelvis` 或 `body`；应挂到 `mid360_link`。
+
+## 启动约定
+本机 Foxglove 推荐启动：
+```bash
+ENABLE_G1_BODY_FRAME_ALIAS=true \
+ENABLE_REALSENSE_STATIC_TF=true \
+REALSENSE_PARENT_FRAME=d435_link \
+REALSENSE_BASE_FRAME=camera_link \
+./foxglove/run_foxglove_bridge_g1.sh
+```
+
+机器人端 RealSense 推荐启动：
+```bash
+ros2 launch realsense2_camera rs_launch.py \
+  publish_tf:=true \
+  pointcloud.enable:=true \
+  align_depth.enable:=true \
+  enable_sync:=true \
+  enable_gyro:=true \
+  enable_accel:=true \
+  unite_imu_method:=2 \
+  depth_module.depth_profile:=1280x720x30 \
+  rgb_camera.color_profile:=1280x720x30
+```
+
+关键环境变量：
+```bash
+REALSENSE_TOPIC_PREFIX=/camera
+ENABLE_REALSENSE_STATIC_TF=false|true
+REALSENSE_PARENT_FRAME=d435_link
+REALSENSE_BASE_FRAME=camera_link
+ENABLE_G1_BODY_FRAME_ALIAS=true|false
+LIDAR_FRAME_ID=livox_frame
+```
+
+## 排查命令
+确认 topic：
+```bash
+ros2 topic list | rg 'camera|utlidar|joint_states|tf'
+```
+
+确认 TF：
+```bash
+ros2 run tf2_ros tf2_echo pelvis body
+ros2 run tf2_ros tf2_echo d435_link camera_link
+ros2 run tf2_ros tf2_echo d435_link camera_color_optical_frame
+ros2 run tf2_ros tf2_echo mid360_link livox_frame
+ros2 run tf2_tools view_frames
+```
+
+Foxglove 报：
+```text
+Missing transform from frame <A> to frame <B>
+```
+
+用这个方向查：
+```bash
+ros2 run tf2_ros tf2_echo B A
+```
 
 ## 本目录约定
-- `g1_description/` 里是静态资产，不参与 `colcon build`；大量 `.STL`、`.urdf`、`.xml` 只是资源，不是源码生成物。
-- `g1_description/README.md` 明确区分 Up-to-date 与 Deprecated 模型；选型前先核对 `mode_machine`、手部配置、腰部锁定状态。
-- `foxglove/run_foxglove_bridge_g1.sh` 与根目录 `run_foxglove_bridge_g1.sh` 都是 zsh 脚本，且当前文件内容一致：都依赖 Jazzy 环境与硬编码 `ROOT_DIR`。
-- 当前两个脚本都只启动 `foxglove_bridge`；如果后续要注入 `robot_description`，需要显式新增 `robot_state_publisher` 相关步骤，而不是假定根脚本已处理。
-- layout 模板默认绑定 `/lowstate`、`/secondary_imu`、`/wirelesscontroller`、`/utlidar/*`、`/grid_clouds` 等 topic；改 topic 名时要同步改模板和 bridge 白名单。
+- `g1_description/` 里是静态资产；大量 `.STL`、`.urdf`、`.xml` 不是源码生成物。
+- `run_foxglove_bridge_g1.sh` 是 zsh 脚本，依赖 Jazzy 环境与当前机器硬编码 `ROOT_DIR`。
+- 脚本会启动 `g1_lowstate_to_joint_states`、`robot_state_publisher`、可选 Inspire Hand/touch 桥接、可选静态 TF，以及 `foxglove_bridge`。
+- 改 topic 名时必须同步改 layout、bridge 白名单和文档；不要只改其中一个。
+- `g1_foxglove copy*.json` 是现场副本/历史布局；主配置优先改 `g1_foxglove.json`。
 
 ## 本目录反模式
 - 不要把这里当成示例源码树；业务控制逻辑不在 `foxglove/`。
-- 不要直接照抄脚本里的 `ROOT_DIR="/home/guobing/My_Repositories/unitree_ros2"`；它绑定当前机器目录与本机安装路径。
-- 不要只改 `g1_foxglove_layout.template.json` 不改 bridge 白名单；面板能订阅的话题受脚本 `TOPIC_WHITELIST` 限制。
+- 不要优先改 `g1_foxglove_layout.template.json` 来影响当前工作区；它只是旧模板。
 - 不要继续优先使用 README 里标成 Deprecated 的 `g1_23dof`、`g1_29dof`、`g1_29dof_with_hand`、`g1_29dof_lock_waist` 老模型。
-
-## 备注
-- `foxglove/` 文件数很多，但绝大多数是 mesh 资产；真正高价值入口很少，先读 README、layout、bridge 脚本即可。
-- 若只排查 Foxglove 3D 不显示机器人，先区分是“当前 bridge 脚本根本没提供 `robot_description` / `/tf` 补充链路”还是“URDF 路径/模型变体选错”。
+- 不要让两个节点发布同一条 TF；发现重复 TF 时优先关闭脚本里的兼容静态 TF。
+- 不要把传感器安装 TF 写成 `pelvis -> camera_*_optical_frame`；光学坐标转换应由相机模型/RealSense wrapper 提供。

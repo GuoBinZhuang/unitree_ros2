@@ -46,6 +46,45 @@ find_package(std_msgs REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_library(GPIOD_LIBRARY gpiod)
+find_package(Threads REQUIRED)
+
+set(UNITREE_SDK2_ROOT "/home/guobing/unitree_sdk2")
+set(UNITREE_SDK2_LIB_DIR "${UNITREE_SDK2_ROOT}/lib/${CMAKE_SYSTEM_PROCESSOR}")
+set(UNITREE_SDK2_THIRDPARTY_DIR "${UNITREE_SDK2_ROOT}/thirdparty")
+set(UNITREE_SDK2_THIRDPARTY_LIB_DIR "${UNITREE_SDK2_THIRDPARTY_DIR}/lib/${CMAKE_SYSTEM_PROCESSOR}")
+set(INSPIRE_HAND_WS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../inspire_hand_ws")
+set(INSPIRE_HAND_IDL_DIR "${INSPIRE_HAND_WS_ROOT}/inspire_hand_sdk/hand_idl")
+
+find_library(UNITREE_SDK2_EXTERNAL_LIB unitree_sdk2 PATHS ${UNITREE_SDK2_LIB_DIR} NO_DEFAULT_PATH)
+find_library(UNITREE_DDSC_EXTERNAL_LIB ddsc PATHS ${UNITREE_SDK2_THIRDPARTY_LIB_DIR} NO_DEFAULT_PATH)
+find_library(UNITREE_DDSCXX_EXTERNAL_LIB ddscxx PATHS ${UNITREE_SDK2_THIRDPARTY_LIB_DIR} NO_DEFAULT_PATH)
+
+if(UNITREE_SDK2_EXTERNAL_LIB AND UNITREE_DDSC_EXTERNAL_LIB AND UNITREE_DDSCXX_EXTERNAL_LIB AND EXISTS "${INSPIRE_HAND_IDL_DIR}/inspire_hand_state.hpp")
+  add_library(ddsc_external SHARED IMPORTED GLOBAL)
+  set_target_properties(ddsc_external PROPERTIES
+    IMPORTED_LOCATION ${UNITREE_DDSC_EXTERNAL_LIB}
+    IMPORTED_NO_SONAME TRUE)
+  target_link_libraries(ddsc_external INTERFACE Threads::Threads)
+  target_include_directories(ddsc_external INTERFACE ${UNITREE_SDK2_THIRDPARTY_DIR}/include)
+
+  add_library(ddscxx_external SHARED IMPORTED GLOBAL)
+  set_target_properties(ddscxx_external PROPERTIES
+    IMPORTED_LOCATION ${UNITREE_DDSCXX_EXTERNAL_LIB}
+    IMPORTED_NO_SONAME TRUE)
+  target_link_libraries(ddscxx_external INTERFACE Threads::Threads ddsc_external)
+  target_include_directories(ddscxx_external INTERFACE
+    ${UNITREE_SDK2_THIRDPARTY_DIR}/include
+    ${UNITREE_SDK2_THIRDPARTY_DIR}/include/ddscxx)
+
+  add_library(unitree_sdk2_external STATIC IMPORTED GLOBAL)
+  set_target_properties(unitree_sdk2_external PROPERTIES
+    IMPORTED_LOCATION ${UNITREE_SDK2_EXTERNAL_LIB})
+  target_link_libraries(unitree_sdk2_external INTERFACE ddsc_external ddscxx_external Threads::Threads)
+  target_include_directories(unitree_sdk2_external INTERFACE
+    ${UNITREE_SDK2_ROOT}/include
+    ${UNITREE_SDK2_THIRDPARTY_DIR}/include
+    ${UNITREE_SDK2_THIRDPARTY_DIR}/include/ddscxx)
+endif()
 
 add_executable(low_level_ctrl src/low_level_ctrl.cpp src/common/motor_crc.cpp)
 add_executable(low_level_ctrl_hg src/h1-2/lowlevel/low_level_ctrl_hg.cpp src/common/motor_crc_hg.cpp)
@@ -69,6 +108,28 @@ target_compile_features(g1_arm_sdk_dds_example PRIVATE cxx_std_20)
 
 add_executable(g1_lowstate_to_joint_states src/g1/high_level/g1_lowstate_to_joint_states.cpp)
 target_compile_features(g1_lowstate_to_joint_states PRIVATE cxx_std_20)
+
+if(TARGET unitree_sdk2_external)
+  add_executable(
+    g1_inspire_hand_to_joint_states
+    src/g1/high_level/g1_inspire_hand_to_joint_states.cpp
+    ${INSPIRE_HAND_IDL_DIR}/inspire_hand_state.cpp)
+  target_compile_features(g1_inspire_hand_to_joint_states PRIVATE cxx_std_17)
+  target_include_directories(g1_inspire_hand_to_joint_states PRIVATE ${INSPIRE_HAND_IDL_DIR})
+  set_target_properties(g1_inspire_hand_to_joint_states PROPERTIES
+    BUILD_RPATH "${UNITREE_SDK2_THIRDPARTY_LIB_DIR}"
+    INSTALL_RPATH "${UNITREE_SDK2_THIRDPARTY_LIB_DIR}")
+
+  add_executable(
+    g1_inspire_hand_touch_to_visualization
+    src/g1/high_level/g1_inspire_hand_touch_to_visualization.cpp
+    ${INSPIRE_HAND_IDL_DIR}/inspire_hand_touch.cpp)
+  target_compile_features(g1_inspire_hand_touch_to_visualization PRIVATE cxx_std_17)
+  target_include_directories(g1_inspire_hand_touch_to_visualization PRIVATE ${INSPIRE_HAND_IDL_DIR})
+  set_target_properties(g1_inspire_hand_touch_to_visualization PROPERTIES
+    BUILD_RPATH "${UNITREE_SDK2_THIRDPARTY_LIB_DIR}"
+    INSTALL_RPATH "${UNITREE_SDK2_THIRDPARTY_LIB_DIR}")
+endif()
 
 add_executable(g1_arm_action_example src/g1/high_level/g1_arm_action_example.cpp src/common/motor_crc.cpp)
 target_compile_features(g1_arm_action_example PRIVATE cxx_std_20)
@@ -129,6 +190,14 @@ ament_target_dependencies(go2_stand_example ${DEPENDENCY_LIST})
 ament_target_dependencies(go2_robot_state_client ${DEPENDENCY_LIST})
 ament_target_dependencies(g1_arm_sdk_dds_example ${DEPENDENCY_LIST})
 ament_target_dependencies(g1_lowstate_to_joint_states ${DEPENDENCY_LIST})
+if(TARGET g1_inspire_hand_to_joint_states)
+  ament_target_dependencies(g1_inspire_hand_to_joint_states ${DEPENDENCY_LIST})
+  target_link_libraries(g1_inspire_hand_to_joint_states unitree_sdk2_external)
+endif()
+if(TARGET g1_inspire_hand_touch_to_visualization)
+  ament_target_dependencies(g1_inspire_hand_touch_to_visualization ${DEPENDENCY_LIST})
+  target_link_libraries(g1_inspire_hand_touch_to_visualization unitree_sdk2_external)
+endif()
 ament_target_dependencies(g1_arm_action_example ${DEPENDENCY_LIST})
 ament_target_dependencies(g1_dex3_example ${DEPENDENCY_LIST})
 target_include_directories(g1_dex3_example PRIVATE ${EIGEN3_INCLUDE_DIR})
@@ -184,6 +253,14 @@ install(TARGETS
         g1_audio_client_example
         g1_tts_led_control_example
         DESTINATION lib/${PROJECT_NAME})
+
+if(TARGET g1_inspire_hand_to_joint_states)
+  install(TARGETS g1_inspire_hand_to_joint_states DESTINATION lib/${PROJECT_NAME})
+endif()
+
+if(TARGET g1_inspire_hand_touch_to_visualization)
+  install(TARGETS g1_inspire_hand_touch_to_visualization DESTINATION lib/${PROJECT_NAME})
+endif()
 
 if(TARGET g1_emergency_stop_node)
   install(TARGETS g1_emergency_stop_node DESTINATION lib/${PROJECT_NAME})

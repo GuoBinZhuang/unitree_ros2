@@ -89,11 +89,6 @@ cd "$ROOT_DIR"
 
 REALSENSE_TOPIC_PREFIX="$(normalize_topic_prefix "$REALSENSE_TOPIC_PREFIX")"
 
-if [[ ! -f "$G1_URDF_PATH" ]]; then
-  echo "未找到 G1 URDF: $G1_URDF_PATH" >&2
-  exit 1
-fi
-
 safe_source "$ROOT_DIR/setup.sh"
 safe_source /opt/ros/jazzy/setup.zsh
 safe_source "$ROOT_DIR/install/setup.zsh"
@@ -238,7 +233,7 @@ typeset -a TOPIC_PATTERNS=(
 )
 
 if [[ "$ENABLE_REALSENSE_D435I_BRIDGE:l" == "true" ]]; then
-  TOPIC_PATTERNS+=("^${REALSENSE_TOPIC_PREFIX}/(color/(image_raw|camera_info)|depth/(camera_info|image_rect_raw|color/points)|aligned_depth_to_color/(image_raw|camera_info)|imu)$")
+  TOPIC_PATTERNS+=("^${REALSENSE_TOPIC_PREFIX}/(color/(image_raw|camera_info|metadata)|depth/(camera_info|image_rect_raw|metadata|color/points)|extrinsics/depth_to_color|imu)$")
 fi
 
 TOPIC_WHITELIST="$(build_topic_whitelist "${TOPIC_PATTERNS[@]}")"
