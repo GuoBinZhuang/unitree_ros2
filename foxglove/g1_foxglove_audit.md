@@ -34,6 +34,7 @@ foxglove/g1_foxglove.json
 - D435i RGB：`/camera/color/image_raw`
 - D435i Depth：`/camera/depth/image_rect_raw`
 - D435i PointCloud：`/camera/depth/color/points`
+- Teleimager 头部图像：`/teleimager/head/compressed`
 - Inspire Hand 右手触觉图：`/inspire_hand/touch/right/image`
 - G1 URDF：`g1_29dof_rev_1_0_with_inspire_hand_FTP.urdf`
 - Mid-360 点云：`/utlidar/cloud_livox_mid360`
@@ -61,6 +62,7 @@ foxglove/run_foxglove_bridge_g1.sh
 - 启动 `g1_lowstate_to_joint_states`
 - 启动 `robot_state_publisher`
 - 可选启动 Inspire Hand / touch 可视化桥接
+- 可选启动 Teleimager 图像到 ROS2 Image/CompressedImage 桥接
 - 可选发布 Mid-360 frame 兼容 TF
 - 可选发布 RealSense 到 G1 的安装 TF
 - 可选发布 `body` frame 兼容别名
@@ -113,6 +115,29 @@ REALSENSE_BASE_FRAME=camera_link \
 ./foxglove/run_foxglove_bridge_g1.sh
 ```
 
+如果要把 `xr_teleoperate` / `teleimager` 的 PC2 图像服务也显示到 Foxglove：
+
+```bash
+ENABLE_TELEIMAGER_IMAGE_BRIDGE=true \
+TELEIMAGER_HOST=192.168.123.164 \
+./foxglove/run_foxglove_bridge_g1.sh
+```
+
+Teleimager 桥接使用双 Python：
+
+```bash
+TELEIMAGER_PYTHON=/usr/bin/python3
+TELEIMAGER_CLIENT_PYTHON=/home/guobing/anaconda3/bin/python
+```
+
+其中 `/usr/bin/python3` 加载 ROS2 Jazzy 的 `rclpy`，Anaconda Python 只作为 `pyzmq` 客户端 helper。
+
+主布局默认显示：
+
+```bash
+/teleimager/head/compressed
+```
+
 现场 G1 实际 topic list 是 `/camera/*`，本机脚本默认也按这个前缀桥接：
 
 ```bash
@@ -126,7 +151,7 @@ REALSENSE_TOPIC_PREFIX=/camera
 先确认 topic：
 
 ```bash
-ros2 topic list | rg 'camera|utlidar|joint_states|tf'
+ros2 topic list | rg 'camera|teleimager|utlidar|joint_states|tf'
 ```
 
 再确认 TF：
@@ -159,6 +184,8 @@ ros2 run tf2_ros tf2_echo B A
 ## 已知边界
 
 - 当前 `g1_foxglove.json` 默认使用 `/camera/*`；不会自动跟随 `REALSENSE_TOPIC_PREFIX` 改 layout。
+- 当前 `g1_foxglove.json` 默认使用 `/teleimager/head/compressed`；如果改 `TELEIMAGER_TOPIC_PREFIX`，需要同步改 layout。
+- `teleimager_to_ros_image.py` 默认用 `/usr/bin/python3` 运行 ROS2 发布节点，另用 `TELEIMAGER_CLIENT_PYTHON=/home/guobing/anaconda3/bin/python` 运行只依赖 `pyzmq` 的 Teleimager ZMQ helper。不要用 Anaconda Python 3.13 加载 ROS2 Jazzy 的 `rclpy`。
 - `ENABLE_G1_BODY_FRAME_ALIAS=true` 是为现场兼容 `body` frame 数据；如果机器人端已经发布 body 相关 TF，应关闭避免重复。
 - `ENABLE_REALSENSE_STATIC_TF=true` 是本机临时补 `d435_link -> camera_link`；如果机器人端已经提供这条 TF，应关闭避免重复。
 - `g1_foxglove_layout.template.json` 是旧的单 3D Scene 模板，不是当前完整工作区布局。

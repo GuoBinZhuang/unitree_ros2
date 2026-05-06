@@ -32,6 +32,15 @@ REALSENSE_TF_Z="${REALSENSE_TF_Z:-0}"
 REALSENSE_TF_ROLL="${REALSENSE_TF_ROLL:-0}"
 REALSENSE_TF_PITCH="${REALSENSE_TF_PITCH:-0}"
 REALSENSE_TF_YAW="${REALSENSE_TF_YAW:-0}"
+ENABLE_TELEIMAGER_IMAGE_BRIDGE="${ENABLE_TELEIMAGER_IMAGE_BRIDGE:-false}"
+TELEIMAGER_HOST="${TELEIMAGER_HOST:-192.168.123.164}"
+TELEIMAGER_REQUEST_PORT="${TELEIMAGER_REQUEST_PORT:-60000}"
+TELEIMAGER_TOPIC_PREFIX="${TELEIMAGER_TOPIC_PREFIX:-/teleimager}"
+TELEIMAGER_CAMERAS="${TELEIMAGER_CAMERAS:-head,left_wrist,right_wrist}"
+TELEIMAGER_PUBLISH_RAW="${TELEIMAGER_PUBLISH_RAW:-false}"
+TELEIMAGER_RATE="${TELEIMAGER_RATE:-30}"
+TELEIMAGER_PYTHON="${TELEIMAGER_PYTHON:-/usr/bin/python3}"
+TELEIMAGER_CLIENT_PYTHON="${TELEIMAGER_CLIENT_PYTHON:-/home/guobing/anaconda3/bin/python}"
 ENABLE_G1_BODY_FRAME_ALIAS="${ENABLE_G1_BODY_FRAME_ALIAS:-true}"
 G1_BODY_PARENT_FRAME="${G1_BODY_PARENT_FRAME:-pelvis}"
 G1_BODY_FRAME="${G1_BODY_FRAME:-body}"
@@ -62,12 +71,13 @@ safe_source() {
 }
 
 normalize_topic_prefix() {
-  local prefix="${1:-/camera}"
+  local fallback="${2:-/camera}"
+  local prefix="${1:-$fallback}"
 
-  [[ -z "$prefix" ]] && prefix="/camera"
+  [[ -z "$prefix" ]] && prefix="$fallback"
   [[ "$prefix" != /* ]] && prefix="/$prefix"
   prefix="${prefix%/}"
-  [[ -z "$prefix" ]] && prefix="/camera"
+  [[ -z "$prefix" ]] && prefix="$fallback"
 
   printf '%s\n' "$prefix"
 }
@@ -88,6 +98,7 @@ build_topic_whitelist() {
 cd "$ROOT_DIR"
 
 REALSENSE_TOPIC_PREFIX="$(normalize_topic_prefix "$REALSENSE_TOPIC_PREFIX")"
+TELEIMAGER_TOPIC_PREFIX="$(normalize_topic_prefix "$TELEIMAGER_TOPIC_PREFIX" "/teleimager")"
 
 if [[ ! -f "$G1_URDF_PATH" ]]; then
   echo "未找到 G1 URDF: $G1_URDF_PATH" >&2
@@ -239,6 +250,44 @@ typeset -a TOPIC_PATTERNS=(
 
 if [[ "$ENABLE_REALSENSE_D435I_BRIDGE:l" == "true" ]]; then
   TOPIC_PATTERNS+=("^${REALSENSE_TOPIC_PREFIX}/(color/(image_raw|camera_info)|depth/(camera_info|image_rect_raw|color/points)|aligned_depth_to_color/(image_raw|camera_info)|imu)$")
+fi
+
+if [[ "$ENABLE_TELEIMAGER_IMAGE_BRIDGE:l" == "true" ]]; then
+  typeset -a TELEIMAGER_PYTHON_CMD
+  TELEIMAGER_PYTHON_CMD=("${(@z)TELEIMAGER_PYTHON}")
+
+  if ! "${TELEIMAGER_PYTHON_CMD[@]}" -c "import rclpy; import sensor_msgs; import cv2; import numpy" >/dev/null; then
+    echo "Teleimager ROS 图像发布 Python 环境不可用: $TELEIMAGER_PYTHON" >&2
+    echo "需要能导入 ROS2(rclpy/sensor_msgs)；Jazzy 的 rclpy 绑定系统 Python 3.12。" >&2
+    echo "Jazzy 的 rclpy 绑定系统 Python 3.12；不要使用 Anaconda Python 3.13 启动这个 ROS2 节点。" >&2
+    exit 1
+  fi
+
+  typeset -a TELEIMAGER_CLIENT_PYTHON_CMD
+  TELEIMAGER_CLIENT_PYTHON_CMD=("${(@z)TELEIMAGER_CLIENT_PYTHON}")
+
+  if ! "${TELEIMAGER_CLIENT_PYTHON_CMD[@]}" -c "import zmq" >/dev/null; then
+    echo "Teleimager ZMQ 客户端 Python 环境不可用: $TELEIMAGER_CLIENT_PYTHON" >&2
+    echo "需要能导入 pyzmq；可通过 TELEIMAGER_CLIENT_PYTHON 指向已安装 pyzmq 的 Python。" >&2
+    exit 1
+  fi
+
+  typeset -a TELEIMAGER_BRIDGE_ARGS=(
+    "$FOXGLOVE_DIR/teleimager_to_ros_image.py"
+    --host "$TELEIMAGER_HOST"
+    --request-port "$TELEIMAGER_REQUEST_PORT"
+    --topic-prefix "$TELEIMAGER_TOPIC_PREFIX"
+    --cameras "$TELEIMAGER_CAMERAS"
+    --rate "$TELEIMAGER_RATE"
+    --client-python "$TELEIMAGER_CLIENT_PYTHON"
+  )
+
+  if [[ "$TELEIMAGER_PUBLISH_RAW:l" == "true" ]]; then
+    TELEIMAGER_BRIDGE_ARGS+=(--raw)
+  fi
+
+  start_bg_checked "${TELEIMAGER_PYTHON_CMD[@]}" "${TELEIMAGER_BRIDGE_ARGS[@]}"
+  TOPIC_PATTERNS+=("^${TELEIMAGER_TOPIC_PREFIX}/(head|left_wrist|right_wrist)/(compressed|image)$")
 fi
 
 TOPIC_WHITELIST="$(build_topic_whitelist "${TOPIC_PATTERNS[@]}")"
